@@ -15,9 +15,9 @@ by Kacper Grzybowski, Marcin Rolbiecki, Mateusz Kasprzak
 - a UI to navigate all those features.
 
 ### Technologies used:
-- Tokio
-- ... ? TODO
-
+- macroquad - light-weight game engine with just enough features and cross-platform support
+- renet - a network library that will help developing the client-server API
+- your EA library - TODO: add this!
 
 ### First iteration:
 Full game with only a mockup of an AI (moves around randomly)
