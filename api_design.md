@@ -6,7 +6,7 @@
 `ROOM CREATE` – create a lobby  
 `ROOM JOIN <room_code>` – enter an existing lobby  
 `ROOM LEAVE` – exit the lobby/matchmaking queue  
-`INPUT <tick_id> <payload>` – send compressed input for the referenced simulation tick  
+`INPUT <payload>` – send compressed input for the referenced simulation tick  
 
 ### Server → Player
 `CONNECT OK` / `CONNECT ERROR <error>` – outcome of the handshake  
@@ -21,7 +21,7 @@
 `ROUND START <round_id>` / `ROUND END <round_id>` – round lifecycle  
 `GAME MAP <payload>` - all static objects loaded before the game starts
 `GAME STATE <game_id> <tick_id> <payload>` – authoritative full game state - all dynamic objects and events; sent on every tick
-`INPUT ERROR <tick_id> <error>` – rejects a specific input packet when it fails validation (e.g., throttling, illegal action)
+`INPUT ERROR <error>` – rejects a specific input packet when it fails validation (e.g., throttling, illegal action)
 
 
 
