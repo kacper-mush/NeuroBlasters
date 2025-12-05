@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 thiserror = "2.0.17"
+glam = { version = "0.30.9", features = ["serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
