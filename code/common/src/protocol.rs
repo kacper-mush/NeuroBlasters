@@ -19,6 +19,8 @@ pub enum ClientMessage {
     RoomJoin { room_code: RoomCode },
     /// Leave the current lobby (only before the game starts).
     RoomLeave,
+    /// Request the room countdown to start.
+    RoomStartCountdown { seconds: u32 },
     /// Provide input for a future simulation tick.
     Input {
         tick_id: TickId,
@@ -38,13 +40,9 @@ pub enum ServerMessage {
         room_code: RoomCode,
     },
     /// Successfully joined lobby.
-    RoomJoinOk {
-        state: RoomState,
-    },
-    /// Lobby state broadcast whenever player list / settings change.
-    RoomState {
-        state: RoomState,
-    },
+    RoomJoinOk { state: RoomState },
+    /// Lobby update broadcast whenever player list / countdown change.
+    RoomUpdate { update: RoomUpdate },
     /// Room leave result; players can't leave the room once game started.
     RoomLeaveOk,
     /// Game instance begins.
@@ -119,8 +117,8 @@ pub struct ApiVersion(pub u16);
 pub struct SessionId(pub u64);
 
 /// Human–facing lobby code used to join rooms.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct RoomCode(pub u64);
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode)]
+pub struct RoomCode(pub String);
 
 /// Unique identifier of a game instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
@@ -199,7 +197,28 @@ pub struct InputPayload {
 /// Full lobby / room state snapshot.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct RoomState {
-    pub player_ids: Vec<PlayerId>,
+    pub members: Vec<RoomMember>,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct RoomMember {
+    pub session_id: SessionId,
+    pub nickname: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct RoomUpdate {
+    pub state: RoomState,
+    pub events: Vec<RoomEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub enum RoomEvent {
+    PlayerJoined { nickname: String },
+    PlayerLeft { nickname: String },
+    CountdownStarted { seconds: u32 },
+    CountdownTick { seconds_left: u32 },
+    CountdownFinished,
 }
 
 /// Result of a completed game.
