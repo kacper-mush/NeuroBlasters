@@ -210,7 +210,6 @@ pub fn resolve_combat(
         let mut hit_someone = false;
 
         for player in players.iter_mut() {
-
             // Simple Circle-Circle Collision
             let dist_sq = player.position.distance_squared(proj.position);
             let sum_radii = player.radius + proj.radius;
