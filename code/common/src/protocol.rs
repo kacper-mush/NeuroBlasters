@@ -25,10 +25,7 @@ pub enum ClientMessage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerMessage {
     /// Confirm handshake.
-    ConnectOk {
-        session_id: SessionId,
-        heartbeat_interval_ms: u32,
-    },
+    ConnectOk { session_id: SessionId },
     /// Lobby created.
     RoomCreateOk { room_code: RoomCode },
     /// Successfully joined lobby.
