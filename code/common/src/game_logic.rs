@@ -1,5 +1,4 @@
-// common/src/game_logic.rs
-use crate::protocol::{Map, PlayerInput, PlayerState, Projectile, RectWall};
+use crate::protocol::{InputPayload, MapDefinition, PlayerState, Projectile, RectWall};
 use glam::Vec2;
 
 // --- Helper Functions ---
@@ -16,7 +15,7 @@ fn resolve_wall_collision(position: &mut Vec2, radius: f32, wall: &RectWall) {
         let normal = diff / dist;
         *position += normal * overlap;
     } 
-    // Deep Overlap (Center inside wall)
+    // Deep Overlap (Center inside wall) - Fallback safety
     else if dist_sq <= 0.0001 {
         let d_min_x = (position.x - wall.min.x).abs();
         let d_max_x = (position.x - wall.max.x).abs();
@@ -32,14 +31,14 @@ fn resolve_wall_collision(position: &mut Vec2, radius: f32, wall: &RectWall) {
     }
 }
 
-fn constrain_to_map(position: &mut Vec2, radius: f32, map: &Map) {
+fn constrain_to_map(position: &mut Vec2, radius: f32, map: &MapDefinition) {
     position.x = position.x.clamp(radius, map.width - radius);
     position.y = position.y.clamp(radius, map.height - radius);
 }
 
-// --- Physics Logic ---
+// --- Main Physics Logic ---
 
-pub fn apply_player_physics(player: &mut PlayerState, input: &PlayerInput, map: &Map, dt: f32) {
+pub fn apply_player_physics(player: &mut PlayerState, input: &InputPayload, map: &MapDefinition, dt: f32) {
     // 1. Movement
     if input.move_axis.length_squared() > 0.0 {
         player.velocity = input.move_axis.normalize() * player.speed;
@@ -54,14 +53,14 @@ pub fn apply_player_physics(player: &mut PlayerState, input: &PlayerInput, map: 
         player.rotation = look_dir.y.atan2(look_dir.x);
     }
 
-    // 3. Collisions
+    // 3. Boundaries & Collisions
     constrain_to_map(&mut player.position, player.radius, map);
     for wall in &map.walls {
         resolve_wall_collision(&mut player.position, player.radius, wall);
     }
 }
 
-pub fn update_projectiles(projectiles: &mut Vec<Projectile>, map: &Map, dt: f32) {
+pub fn update_projectiles(projectiles: &mut Vec<Projectile>, map: &MapDefinition, dt: f32) {
     projectiles.retain_mut(|proj| {
         proj.position += proj.velocity * dt;
 

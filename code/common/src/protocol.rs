@@ -20,7 +20,7 @@ pub enum ClientMessage {
     /// Provide input for a future simulation tick.
     Input {
         tick_id: TickId,
-        payload: PlayerInput, // Changed from InputPayload to PlayerInput
+        payload: InputPayload,
     },
 }
 
@@ -55,7 +55,7 @@ pub enum ServerMessage {
         summary: RoundSummary,
     },
     /// Static map transfer.
-    GameMap { game_id: GameId, map: Map }, // Changed from MapDefinition to Map
+    GameMap { game_id: GameId, map: MapDefinition },
     /// Authoritative per-tick state.
     GameState {
         game_id: GameId,
@@ -126,26 +126,12 @@ pub struct PlayerId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ClientId(pub u64);
 
-// Game Entities (Replaces Placeholders) -------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PlayerInput {
-    pub move_axis: Vec2,
-    pub aim_pos: Vec2,
-    pub shoot: bool,
-}
+// Additional Game Entities (Added to support the payloads) ------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RectWall {
     pub min: Vec2,
     pub max: Vec2,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Map {
-    pub width: f32,
-    pub height: f32,
-    pub walls: Vec<RectWall>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -169,7 +155,15 @@ pub struct Projectile {
     pub radius: f32,
 }
 
-// Payload types -------------------------------------------------------------
+// Placeholder payload types -------------------------------------------------
+
+/// Logical input payload sent from the client for a single tick.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InputPayload {
+    pub move_axis: Vec2,
+    pub aim_pos: Vec2,
+    pub shoot: bool,
+}
 
 /// Full lobby / room state snapshot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -187,6 +181,14 @@ pub struct GameResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RoundSummary {
     pub duration_seconds: f32,
+}
+
+/// Static map definition.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MapDefinition {
+    pub width: f32,
+    pub height: f32,
+    pub walls: Vec<RectWall>,
 }
 
 /// Authoritative per–tick game state snapshot.
