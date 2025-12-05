@@ -1,7 +1,6 @@
 // common/src/protocol.rs
 use bincode::{Decode, Encode};
 use glam::Vec2;
-use serde::{Deserialize, Serialize}; // Needed for the 'with_serde' attribute on Vec2
 use thiserror::Error;
 
 // Message enums -------------------------------------------------------------
