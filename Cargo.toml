@@ -1,0 +1,2 @@
+[workspace]
+members = ["code/server", "code/client", "code/common"]
