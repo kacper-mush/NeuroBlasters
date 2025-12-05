@@ -32,7 +32,7 @@ fn draw_the_game_world() {
 #[macroquad::main("Neuroblasters")]
 async fn main() {
     let mut current_state = AppState::MainMenu;
-    let text_params = TextParams {
+    let default_text_params = TextParams {
         font_size: 30,
         ..Default::default()
     };
@@ -42,7 +42,7 @@ async fn main() {
         250.,
         50.,
         Default::default(),
-        text_params,
+        default_text_params.clone(),
         16,
     );
 
@@ -53,19 +53,15 @@ async fn main() {
             AppState::MainMenu => {
                 let x_mid = screen_width() / 2.;
 
-                let params = TextParams {
-                    font_size: 40,
-                    color: GRAY,
+                let params = ui::TextParamsExtended {
+                    base: TextParams {
+                        font_size: 40,
+                        color: GRAY,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 };
-                ui::UnpositionedText::new_ex("MAIN MENU", params)
-                    .position(
-                        x_mid,
-                        100.0,
-                        ui::TextVerticalPositioning::CenterExact,
-                        ui::TextHorizontalPositioning::Center,
-                    )
-                    .draw();
+                ui::extended_draw_text("MAIN MENU", x_mid, 100., params);
 
                 let play_button = ui::Button::new_centered(
                     x_mid,
@@ -73,7 +69,8 @@ async fn main() {
                     200.0,
                     50.0,
                     Default::default(),
-                    Some(ui::UnpositionedText::new("Play game", 30)),
+                    Some(default_text_params.clone()),
+                    Some("Play game".into()),
                 );
                 play_button.draw();
 
@@ -83,7 +80,8 @@ async fn main() {
                     200.0,
                     50.0,
                     Default::default(),
-                    Some(ui::UnpositionedText::new("Quit", 30)),
+                    Some(default_text_params.clone()),
+                    Some("Quit".into()),
                 );
                 quit_button.draw();
 
@@ -121,14 +119,7 @@ async fn main() {
 
                 let x_mid = screen_width() / 2.;
 
-                ui::UnpositionedText::new("PAUSED", 40)
-                    .position(
-                        x_mid,
-                        150.,
-                        ui::TextVerticalPositioning::CenterExact,
-                        ui::TextHorizontalPositioning::Center,
-                    )
-                    .draw();
+                ui::draw_text_simple_center("PAUSED", x_mid, 150., 40);
 
                 let resume_button = ui::Button::new_centered(
                     x_mid,
@@ -136,7 +127,8 @@ async fn main() {
                     250.0,
                     50.0,
                     Default::default(),
-                    Some(ui::UnpositionedText::new("Resume", 30)),
+                    Some(default_text_params.clone()),
+                    Some("Resume".into()),
                 );
                 resume_button.draw();
 
@@ -146,7 +138,8 @@ async fn main() {
                     250.0,
                     50.0,
                     Default::default(),
-                    Some(ui::UnpositionedText::new("Exit to Main Menu", 30)),
+                    Some(default_text_params.clone()),
+                    Some("Exit to Main Menu".into()),
                 );
                 quit_button.draw();
 
