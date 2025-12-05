@@ -5,18 +5,13 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientMessage {
     /// Begin a session.
-    Connect {
-        api_version: u16,
-        nickname: String,
-    },
+    Connect { api_version: u16, nickname: String },
     /// Request graceful shutdown.
     Disconnect,
     /// Create a lobby.
     RoomCreate,
     /// Join an existing lobby by code.
-    RoomJoin {
-        room_code: RoomCode,
-    },
+    RoomJoin { room_code: RoomCode },
     /// Leave the current lobby (only before the game starts).
     RoomLeave,
     /// Provide input for a future simulation tick.
@@ -35,17 +30,11 @@ pub enum ServerMessage {
         heartbeat_interval_ms: u32,
     },
     /// Lobby created.
-    RoomCreateOk {
-        room_code: RoomCode,
-    },
+    RoomCreateOk { room_code: RoomCode },
     /// Successfully joined lobby.
-    RoomJoinOk {
-        state: RoomState,
-    },
+    RoomJoinOk { state: RoomState },
     /// Lobby state broadcast whenever player list / settings change.
-    RoomState {
-        state: RoomState,
-    },
+    RoomState { state: RoomState },
     /// Room leave result; players can't leave the room once game started.
     RoomLeaveOk,
     /// Game instance begins.
@@ -54,10 +43,7 @@ pub enum ServerMessage {
         // ? teams: Vec<TeamAssignment>,
     },
     /// Game instance completes.
-    GameEnd {
-        game_id: GameId,
-        result: GameResult,
-    },
+    GameEnd { game_id: GameId, result: GameResult },
     /// Per-round start signal.
     RoundStart {
         round_id: RoundId,
@@ -69,10 +55,7 @@ pub enum ServerMessage {
         summary: RoundSummary,
     },
     /// Static map transfer.
-    GameMap {
-        game_id: GameId,
-        map: MapDefinition,
-    },
+    GameMap { game_id: GameId, map: MapDefinition },
     /// Authoritative per-tick state.
     GameState {
         game_id: GameId,
@@ -101,9 +84,7 @@ pub enum ServerError {
     RoomLeave,
     /// Input for a given tick was rejected.
     #[error("Input error at tick {tick_id:?}")]
-    Input {
-        tick_id: TickId,
-    },
+    Input { tick_id: TickId },
     /// Catch–all fatal / internal errors not covered by the categories above.
     #[error("Server error")]
     General,
