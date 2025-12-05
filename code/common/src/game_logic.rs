@@ -316,23 +316,6 @@ pub fn check_round_winner(players: &[PlayerState]) -> Option<Team> {
     None
 }
 
-pub fn create_demo_map() -> MapDefinition {
-    MapDefinition {
-        width: 800.0,
-        height: 600.0,
-        walls: vec![
-            RectWall {
-                min: Vec2::new(100.0, 100.0),
-                max: Vec2::new(200.0, 200.0),
-            },
-            RectWall {
-                min: Vec2::new(400.0, 300.0),
-                max: Vec2::new(500.0, 400.0),
-            },
-        ],
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
