@@ -1,11 +1,13 @@
+// common/src/protocol.rs
+use bincode::{Decode, Encode};
 use glam::Vec2;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize}; // Needed for the 'with_serde' attribute on Vec2
 use thiserror::Error;
 
 // Message enums -------------------------------------------------------------
 
 /// All messages that the client can send to the server.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum ClientMessage {
     /// Begin a session.
     Connect { api_version: u16, nickname: String },
@@ -25,7 +27,7 @@ pub enum ClientMessage {
 }
 
 /// All messages that the server can send to the client.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum ServerMessage {
     /// Confirm handshake.
     ConnectOk { session_id: SessionId },
@@ -38,10 +40,7 @@ pub enum ServerMessage {
     /// Room leave result; players can't leave the room once game started.
     RoomLeaveOk,
     /// Game instance begins.
-    GameStart {
-        game_id: GameId,
-        // ? teams: Vec<TeamAssignment>,
-    },
+    GameStart { game_id: GameId },
     /// Game instance completes.
     GameEnd { game_id: GameId, result: GameResult },
     /// Per-round start signal.
@@ -66,10 +65,8 @@ pub enum ServerMessage {
     Error(ServerError),
 }
 
-// TODO: Add source errors for more complex errors.
-
 /// All server → client errors carried through `ServerMessage::Error`.
-#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Encode, Decode)]
 pub enum ServerError {
     #[error("Handshake error")]
     Connect,
@@ -95,49 +92,53 @@ pub enum ServerError {
 // Identifier newtypes -------------------------------------------------------
 
 /// Protocol / API version negotiated at connect time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct ApiVersion(pub u16);
 
 /// Unique identifier of a client session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct SessionId(pub u64);
 
 /// Human–facing lobby code used to join rooms.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct RoomCode(pub u64);
 
 /// Unique identifier of a game instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct GameId(pub u64);
 
 /// Unique identifier of a round within a game.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct RoundId(pub u64);
 
 /// Simulation tick identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct TickId(pub u64);
 
 /// Player identifier used across the session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct PlayerId(pub u64);
 
 /// Low–level client identifier (transport / connection).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct ClientId(pub u64);
 
-// Additional Game Entities (Added to support the payloads) ------------------
+// Additional Game Entities --------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct RectWall {
+    #[bincode(with_serde)]
     pub min: Vec2,
+    #[bincode(with_serde)]
     pub max: Vec2,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct PlayerState {
     pub id: PlayerId,
+    #[bincode(with_serde)]
     pub position: Vec2,
+    #[bincode(with_serde)]
     pub velocity: Vec2,
     pub rotation: f32,
     pub radius: f32,
@@ -146,45 +147,49 @@ pub struct PlayerState {
     pub weapon_cooldown: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct Projectile {
     pub id: u64,
     pub owner_id: PlayerId,
+    #[bincode(with_serde)]
     pub position: Vec2,
+    #[bincode(with_serde)]
     pub velocity: Vec2,
     pub radius: f32,
 }
 
-// Placeholder payload types -------------------------------------------------
+// Payload types -------------------------------------------------------------
 
 /// Logical input payload sent from the client for a single tick.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct InputPayload {
+    #[bincode(with_serde)]
     pub move_axis: Vec2,
+    #[bincode(with_serde)]
     pub aim_pos: Vec2,
     pub shoot: bool,
 }
 
 /// Full lobby / room state snapshot.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct RoomState {
     pub player_ids: Vec<PlayerId>,
 }
 
 /// Result of a completed game.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct GameResult {
     pub winner_id: Option<PlayerId>,
 }
 
 /// Summary information for a completed round.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct RoundSummary {
     pub duration_seconds: f32,
 }
 
 /// Static map definition.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct MapDefinition {
     pub width: f32,
     pub height: f32,
@@ -192,7 +197,7 @@ pub struct MapDefinition {
 }
 
 /// Authoritative per–tick game state snapshot.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct GameStateSnapshot {
     pub players: Vec<PlayerState>,
     pub projectiles: Vec<Projectile>,
