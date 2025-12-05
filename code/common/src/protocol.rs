@@ -1,7 +1,96 @@
-// common/src/protocol.rs
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+// Message enums -------------------------------------------------------------
+
+/// All messages that the client can send to the server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ClientMessage {
+    /// Begin a session.
+    Connect { api_version: u16, nickname: String },
+    /// Request graceful shutdown.
+    Disconnect,
+    /// Create a lobby.
+    RoomCreate,
+    /// Join an existing lobby by code.
+    RoomJoin { room_code: RoomCode },
+    /// Leave the current lobby (only before the game starts).
+    RoomLeave,
+    /// Provide input for a future simulation tick.
+    Input {
+        tick_id: TickId,
+        payload: PlayerInput, // Changed from InputPayload to PlayerInput
+    },
+}
+
+/// All messages that the server can send to the client.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ServerMessage {
+    /// Confirm handshake.
+    ConnectOk { session_id: SessionId },
+    /// Lobby created.
+    RoomCreateOk { room_code: RoomCode },
+    /// Successfully joined lobby.
+    RoomJoinOk { state: RoomState },
+    /// Lobby state broadcast whenever player list / settings change.
+    RoomState { state: RoomState },
+    /// Room leave result; players can't leave the room once game started.
+    RoomLeaveOk,
+    /// Game instance begins.
+    GameStart {
+        game_id: GameId,
+        // ? teams: Vec<TeamAssignment>,
+    },
+    /// Game instance completes.
+    GameEnd { game_id: GameId, result: GameResult },
+    /// Per-round start signal.
+    RoundStart {
+        round_id: RoundId,
+        game_time_ms: u64,
+    },
+    /// Per-round finish signal.
+    RoundEnd {
+        round_id: RoundId,
+        summary: RoundSummary,
+    },
+    /// Static map transfer.
+    GameMap { game_id: GameId, map: Map }, // Changed from MapDefinition to Map
+    /// Authoritative per-tick state.
+    GameState {
+        game_id: GameId,
+        tick_id: TickId,
+        state: GameStateSnapshot,
+    },
+    /// Unified error channel carrying all server → client errors.
+    Error(ServerError),
+}
+
+// TODO: Add source errors for more complex errors.
+
+/// All server → client errors carried through `ServerMessage::Error`.
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
+pub enum ServerError {
+    #[error("Handshake error")]
+    Connect,
+    /// Lobby creation failed.
+    #[error("Room creation error")]
+    RoomCreate,
+    /// Joining a lobby failed.
+    #[error("Room join error")]
+    RoomJoin,
+    /// Leaving a lobby failed.
+    #[error("Room leave error")]
+    RoomLeave,
+    /// Input for a given tick was rejected.
+    #[error("Input error at tick {tick_id:?}")]
+    Input { tick_id: TickId },
+    /// Catch–all fatal / internal errors not covered by the categories above.
+    #[error("Server error")]
+    General,
+}
+
+// Concrete message payload structs -----------------------------------------
 
 // Identifier newtypes -------------------------------------------------------
 
@@ -37,8 +126,7 @@ pub struct PlayerId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ClientId(pub u64);
 
-
-// Game Entities -------------------------------------------------------------
+// Game Entities (Replaces Placeholders) -------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PlayerInput {
@@ -81,16 +169,7 @@ pub struct Projectile {
     pub radius: f32,
 }
 
-
-// Concrete message payload structs -----------------------------------------
-
-/// Authoritative per–tick game state snapshot.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GameStateSnapshot {
-    pub players: Vec<PlayerState>,
-    pub projectiles: Vec<Projectile>,
-    pub time_remaining: f32,
-}
+// Payload types -------------------------------------------------------------
 
 /// Full lobby / room state snapshot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -110,80 +189,10 @@ pub struct RoundSummary {
     pub duration_seconds: f32,
 }
 
-
-// Message enums -------------------------------------------------------------
-
-/// All messages that the client can send to the server.
+/// Authoritative per–tick game state snapshot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ClientMessage {
-    /// Begin a session.
-    Connect { api_version: u16, nickname: String },
-    /// Request graceful shutdown.
-    Disconnect,
-    /// Create a lobby.
-    RoomCreate,
-    /// Join an existing lobby by code.
-    RoomJoin { room_code: RoomCode },
-    /// Leave the current lobby (only before the game starts).
-    RoomLeave,
-    /// Provide input for a future simulation tick.
-    Input {
-        tick_id: TickId,
-        payload: PlayerInput,
-    },
-}
-
-/// All messages that the server can send to the client.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ServerMessage {
-    /// Confirm handshake.
-    ConnectOk { session_id: SessionId },
-    /// Lobby created.
-    RoomCreateOk { room_code: RoomCode },
-    /// Successfully joined lobby.
-    RoomJoinOk { state: RoomState },
-    /// Lobby state broadcast whenever player list / settings change.
-    RoomState { state: RoomState },
-    /// Room leave result; players can't leave the room once game started.
-    RoomLeaveOk,
-    /// Game instance begins.
-    GameStart { game_id: GameId },
-    /// Game instance completes.
-    GameEnd { game_id: GameId, result: GameResult },
-    /// Per-round start signal.
-    RoundStart { round_id: RoundId, game_time_ms: u64 },
-    /// Per-round finish signal.
-    RoundEnd { round_id: RoundId, summary: RoundSummary },
-    /// Static map transfer.
-    GameMap { game_id: GameId, map: Map },
-    /// Authoritative per-tick state.
-    GameState {
-        game_id: GameId,
-        tick_id: TickId,
-        state: GameStateSnapshot,
-    },
-    /// Unified error channel carrying all server → client errors.
-    Error(ServerError),
-}
-
-/// All server → client errors carried through `ServerMessage::Error`.
-#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
-pub enum ServerError {
-    #[error("Handshake error")]
-    Connect,
-    /// Lobby creation failed.
-    #[error("Room creation error")]
-    RoomCreate,
-    /// Joining a lobby failed.
-    #[error("Room join error")]
-    RoomJoin,
-    /// Leaving a lobby failed.
-    #[error("Room leave error")]
-    RoomLeave,
-    /// Input for a given tick was rejected.
-    #[error("Input error at tick {tick_id:?}")]
-    Input { tick_id: TickId },
-    /// Catch–all fatal / internal errors not covered by the categories above.
-    #[error("Server error")]
-    General,
+pub struct GameStateSnapshot {
+    pub players: Vec<PlayerState>,
+    pub projectiles: Vec<Projectile>,
+    pub time_remaining: f32,
 }
