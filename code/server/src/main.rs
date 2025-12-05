@@ -66,7 +66,8 @@ fn init_tracing() {
 struct ServerApp {
     server: RenetServer,
     transport: NetcodeServerTransport,
-    sessions: HashMap<ClientId, SessionState>,
+    /// Only authenticated (handshaken) clients are stored here.
+    sessions: HashMap<ClientId, SessionInfo>,
     rng: StdRng,
     last_tick: Instant,
 }
@@ -130,7 +131,6 @@ impl ServerApp {
             match event {
                 ServerEvent::ClientConnected { client_id } => {
                     info!(client_id = %client_id, "client connected");
-                    self.sessions.insert(client_id, SessionState::Handshaking);
                 }
                 ServerEvent::ClientDisconnected { client_id, reason } => {
                     info!(client_id = %client_id, ?reason, "client disconnected");
@@ -183,26 +183,15 @@ impl ServerApp {
             return;
         }
 
-        let should_complete_handshake = {
-            match self.sessions.get(&client_id) {
-                Some(SessionState::Handshaking) => true,
-                Some(SessionState::Connected(existing)) => {
-                    debug!(
-                        client_id = %client_id,
-                        session_id = existing.session_id.0,
-                        "client attempted to handshake twice"
-                    );
-                    self.send_error(client_id, ServerError::Connect);
-                    false
-                }
-                None => {
-                    warn!(client_id = %client_id, "received handshake message for unknown client");
-                    false
-                }
-            }
-        };
-
-        if !should_complete_handshake {
+        // If we already have an authenticated session for this client_id,
+        // treat this as a duplicate handshake attempt.
+        if let Some(existing) = self.sessions.get(&client_id) {
+            debug!(
+                client_id = %client_id,
+                session_id = existing.session_id.0,
+                "client attempted to handshake twice"
+            );
+            self.send_error(client_id, ServerError::Connect);
             return;
         }
 
@@ -217,10 +206,10 @@ impl ServerApp {
 
         self.sessions.insert(
             client_id,
-            SessionState::Connected(SessionInfo {
+            SessionInfo {
                 session_id,
                 nickname,
-            }),
+            },
         );
 
         self.send_message(client_id, ServerMessage::ConnectOk { session_id });
@@ -242,18 +231,23 @@ impl ServerApp {
     }
 
     fn ensure_connected(&mut self, client_id: ClientId) -> bool {
-        match self.sessions.get(&client_id) {
-            Some(SessionState::Connected(_)) => true,
-            Some(SessionState::Handshaking) => {
-                warn!(client_id = %client_id, "received message before handshake completed");
-                self.send_error(client_id, ServerError::Connect);
-                false
-            }
-            None => {
-                warn!(client_id = %client_id, "received message for unknown client");
-                false
-            }
+        if self.sessions.contains_key(&client_id) {
+            return true;
         }
+
+        // Client may still be connected at the transport layer but not authenticated yet.
+        if self.server.clients_id().contains(&client_id) {
+            warn!(
+                client_id = %client_id,
+                "received message before handshake completed"
+            );
+            self.send_error(client_id, ServerError::Connect);
+        } else {
+            // Fully unknown / already disconnected. This probably shouldn't happen.
+            panic!("received message for unknown client: {}", client_id);
+        }
+
+        false
     }
 
     fn send_error(&mut self, client_id: ClientId, error: ServerError) {
@@ -276,13 +270,6 @@ impl ServerApp {
     }
 }
 
-#[derive(Debug)]
-enum SessionState {
-    Handshaking,
-    Connected(SessionInfo),
-}
-
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct SessionInfo {
     session_id: SessionId,
