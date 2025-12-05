@@ -1,7 +1,5 @@
-// common/src/protocol.rs
 use bincode::{Decode, Encode};
 use glam::Vec2;
-use serde::{Deserialize, Serialize}; // Needed for the 'with_serde' attribute on Vec2
 use thiserror::Error;
 
 // Message enums -------------------------------------------------------------
@@ -30,19 +28,32 @@ pub enum ClientMessage {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum ServerMessage {
     /// Confirm handshake.
-    ConnectOk { session_id: SessionId },
+    ConnectOk {
+        session_id: SessionId,
+    },
     /// Lobby created.
-    RoomCreateOk { room_code: RoomCode },
+    RoomCreateOk {
+        room_code: RoomCode,
+    },
     /// Successfully joined lobby.
-    RoomJoinOk { state: RoomState },
+    RoomJoinOk {
+        state: RoomState,
+    },
     /// Lobby state broadcast whenever player list / settings change.
-    RoomState { state: RoomState },
+    RoomState {
+        state: RoomState,
+    },
     /// Room leave result; players can't leave the room once game started.
     RoomLeaveOk,
     /// Game instance begins.
-    GameStart { game_id: GameId },
+    GameStart {
+        game_id: GameId,
+    },
     /// Game instance completes.
-    GameEnd { game_id: GameId, result: GameResult },
+    GameEnd {
+        game_id: GameId,
+        result: GameResult,
+    },
     /// Per-round start signal.
     RoundStart {
         round_id: RoundId,
@@ -54,12 +65,18 @@ pub enum ServerMessage {
         summary: RoundSummary,
     },
     /// Static map transfer.
-    GameMap { game_id: GameId, map: MapDefinition },
+    GameMap {
+        game_id: GameId,
+        map: MapDefinition,
+    },
     /// Authoritative per-tick state.
     GameState {
         game_id: GameId,
         tick_id: TickId,
         state: GameStateSnapshot,
+    },
+    PlayerKilled {
+        kill_event: KillEvent,
     },
     /// Unified error channel carrying all server → client errors.
     Error(ServerError),
@@ -133,9 +150,16 @@ pub struct RectWall {
     pub max: Vec2,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum Team {
+    Blue,
+    Red,
+}
+
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct PlayerState {
     pub id: PlayerId,
+    pub team: Team,
     #[bincode(with_serde)]
     pub position: Vec2,
     #[bincode(with_serde)]
@@ -179,7 +203,7 @@ pub struct RoomState {
 /// Result of a completed game.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct GameResult {
-    pub winner_id: Option<PlayerId>,
+    pub winner: Option<Team>,
 }
 
 /// Summary information for a completed round.
@@ -202,4 +226,11 @@ pub struct GameStateSnapshot {
     pub players: Vec<PlayerState>,
     pub projectiles: Vec<Projectile>,
     pub time_remaining: f32,
+}
+
+// Tells who killed whom.
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct KillEvent {
+    pub killer_id: PlayerId,
+    pub victim_id: PlayerId,
 }
