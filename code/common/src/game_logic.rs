@@ -70,7 +70,7 @@ fn constrain_to_map(position: &mut Vec2, radius: f32, map: &MapDefinition) {
     position.y = position.y.clamp(radius, map.height - radius);
 }
 
-/// Returns true if the position is safe (not inside any wall).
+/// Returns true if the not inside any wall.
 fn is_position_safe(pos: Vec2, radius: f32, map: &MapDefinition) -> bool {
     // 1. Check Map Boundaries
     if pos.x < radius || pos.x > map.width - radius || pos.y < radius || pos.y > map.height - radius
@@ -210,10 +210,6 @@ pub fn resolve_combat(
         let mut hit_someone = false;
 
         for player in players.iter_mut() {
-            // Don't hit yourself
-            if player.id == proj.owner_id {
-                continue;
-            }
 
             // Simple Circle-Circle Collision
             let dist_sq = player.position.distance_squared(proj.position);
@@ -319,6 +315,23 @@ pub fn check_round_winner(players: &[PlayerState]) -> Option<Team> {
 
     // If both are alive (or both died same tick), round continues.
     None
+}
+
+pub fn create_demo_map() -> MapDefinition {
+    MapDefinition {
+        width: 800.0,
+        height: 600.0,
+        walls: vec![
+            RectWall {
+                min: Vec2::new(100.0, 100.0),
+                max: Vec2::new(200.0, 200.0),
+            },
+            RectWall {
+                min: Vec2::new(400.0, 300.0),
+                max: Vec2::new(500.0, 400.0),
+            },
+        ],
+    }
 }
 
 #[cfg(test)]
