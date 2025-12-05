@@ -1,3 +1,4 @@
+use thiserror::Error;
 // Message enums -------------------------------------------------------------
 
 /// All messages that the client can send to the server.
@@ -82,40 +83,30 @@ pub enum ServerMessage {
     Error(ServerError),
 }
 
+// TODO: Add source errors for more complex errors.
+
 /// All server → client errors carried through `ServerMessage::Error`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ServerError {
-    /// Handshake / connect–phase errors.
-    Connect {
-        code: u16,
-        message: HumanReadable,
-    },
+    #[error("Handshake error")]
+    Connect,
     /// Lobby creation failed.
-    RoomCreate {
-        code: u16,
-        message: HumanReadable,
-    },
+    #[error("Room creation error")]
+    RoomCreate,
     /// Joining a lobby failed.
-    RoomJoin {
-        code: u16,
-        message: HumanReadable,
-    },
+    #[error("Room join error")]
+    RoomJoin,
     /// Leaving a lobby failed.
-    RoomLeave {
-        code: u16,
-        message: HumanReadable,
-    },
+    #[error("Room leave error")]
+    RoomLeave,
     /// Input for a given tick was rejected.
+    #[error("Input error at tick {tick_id:?}")]
     Input {
         tick_id: TickId,
-        code: u16,
-        message: HumanReadable,
     },
     /// Catch–all fatal / internal errors not covered by the categories above.
-    General {
-        code: u16,
-        message: HumanReadable,
-    },
+    #[error("Server error")]
+    General,
 }
 
 // Concrete message payload structs -----------------------------------------
@@ -153,10 +144,6 @@ pub struct PlayerId(pub u64);
 /// Low–level client identifier (transport / connection).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ClientId(pub u64);
-
-/// Short human–readable error / status message.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HumanReadable(pub String);
 
 // Placeholder payload types -------------------------------------------------
 
