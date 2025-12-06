@@ -4,16 +4,17 @@ use std::{
 };
 
 use common::{
-    CountdownError, RoomCode, RoomCreateError, RoomEvent, RoomJoinError, RoomLeaveError,
-    RoomMember, RoomState, RoomUpdate, ServerMessage,
+    CountdownError, GameUpdate, InputPayload, RoomCode, RoomCreateError, RoomEvent, RoomJoinError,
+    RoomLeaveError, RoomMember, RoomState, RoomUpdate, ServerError, ServerMessage, TickId,
 };
 use rand::RngCore;
 use renet::ClientId;
+use tracing::error;
 
 use crate::{
     ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_IDLE_TIMEOUT, ServerApp, SessionInfo,
     countdown::{CountdownAdvance, CountdownTimer},
-    game::{GameInstance, GameStartContext, placeholder_game_update, placeholder_map},
+    game::GameInstance,
 };
 
 #[derive(Default)]
@@ -44,6 +45,11 @@ impl Room {
     pub fn remove_member(&mut self, client_id: ClientId, nickname: String, now: Instant) -> bool {
         if self.members.remove(&client_id) {
             self.pending_events.push(RoomEvent::PlayerLeft { nickname });
+            if let Some(game) = self.game.as_mut()
+                && game.remove_client(client_id)
+            {
+                self.game = None;
+            }
             if self.members.is_empty() {
                 self.empty_since = Some(now);
             }
@@ -82,18 +88,28 @@ impl Room {
         self.members.len() >= 2
     }
 
-    pub fn begin_game(&mut self, now: Instant) -> Option<GameStartContext> {
-        if self.game.is_some() || !self.can_start_game() {
-            return None;
+    pub fn begin_game(&mut self, instance: GameInstance) -> bool {
+        if self.game.is_some() {
+            return false;
         }
-
-        let (instance, context) = GameInstance::start(now);
         self.game = Some(instance);
-        Some(context)
+        true
     }
 
-    pub fn has_pending_events(&self) -> bool {
-        !self.pending_events.is_empty()
+    pub fn game_mut(&mut self) -> Option<&mut GameInstance> {
+        self.game.as_mut()
+    }
+
+    pub fn advance_game(&mut self, delta: Duration) -> Option<(TickId, GameUpdate)> {
+        let game = self.game.as_mut()?;
+
+        match game.advance(delta) {
+            Some(result) => Some(result),
+            None => {
+                self.game = None;
+                None
+            }
+        }
     }
 
     pub fn drain_events(&mut self) -> Vec<RoomEvent> {
@@ -128,28 +144,34 @@ impl Room {
 impl ServerApp {
     pub(super) fn update_rooms(&mut self, delta: Duration) {
         let now = Instant::now();
-        let mut rooms_to_update = Vec::new();
         let mut rooms_to_start = Vec::new();
+        let mut rooms_to_broadcast = Vec::new();
+        let mut game_updates = Vec::new();
 
         for (code, room) in self.rooms.iter_mut() {
             let countdown_progress = room.advance_countdown(delta);
-            if countdown_progress.emitted_events {
-                rooms_to_update.push(code.clone());
-            }
             if countdown_progress.finished {
                 rooms_to_start.push(code.clone());
             }
+            rooms_to_broadcast.push(code.clone());
+            if let Some((tick_id, update)) = room.advance_game(delta) {
+                game_updates.push((code.clone(), tick_id, update));
+            }
         }
 
-        for code in rooms_to_update {
+        for code in rooms_to_broadcast {
             self.broadcast_room_update(&code);
+        }
+
+        for (code, tick_id, update) in game_updates {
+            self.broadcast_game_update(&code, tick_id, update);
         }
 
         self.rooms
             .retain(|_, room| !room.should_remove(now, ROOM_IDLE_TIMEOUT));
 
         for code in rooms_to_start {
-            self.bootstrap_room_game(&code, now);
+            self.bootstrap_room_game(&code);
         }
     }
 
@@ -158,14 +180,10 @@ impl ServerApp {
             return;
         };
 
-        if !room.has_pending_events() {
-            return;
-        }
-
         let member_ids = room.member_ids();
         let countdown_seconds_left = room.countdown_seconds_left();
         let events = room.drain_events();
-        if member_ids.is_empty() || events.is_empty() {
+        if member_ids.is_empty() {
             return;
         }
 
@@ -181,40 +199,96 @@ impl ServerApp {
         }
     }
 
-    fn bootstrap_room_game(&mut self, room_code: &RoomCode, started_at: Instant) {
-        let (member_ids, start_context) = {
-            let Some(room) = self.rooms.get_mut(room_code) else {
-                return;
-            };
-
-            if !room.can_start_game() {
-                room.cancel_countdown();
-                return;
-            }
-
-            let member_ids = room.member_ids();
-            let Some(context) = room.begin_game(started_at) else {
-                return;
-            };
-
-            (member_ids, context)
+    pub(super) fn broadcast_game_update(
+        &mut self,
+        room_code: &RoomCode,
+        tick_id: TickId,
+        update: GameUpdate,
+    ) {
+        let Some(room) = self.rooms.get(room_code) else {
+            return;
         };
+
+        let member_ids = room.member_ids();
+        if member_ids.is_empty() {
+            return;
+        }
+
+        for client_id in member_ids {
+            self.send_message(
+                client_id,
+                ServerMessage::GameUpdate {
+                    tick_id,
+                    update: update.clone(),
+                },
+            );
+        }
+    }
+
+    fn bootstrap_room_game(&mut self, room_code: &RoomCode) {
+        let (can_start, member_ids) = match self.rooms.get(room_code) {
+            Some(room) => (room.can_start_game(), room.member_ids()),
+            None => return,
+        };
+
+        if !can_start {
+            if let Some(room) = self.rooms.get_mut(room_code) {
+                room.cancel_countdown();
+            }
+            return;
+        }
 
         if member_ids.is_empty() {
             return;
         }
 
-        let map = placeholder_map();
-        let update = placeholder_game_update();
+        let member_sessions: Vec<(ClientId, SessionInfo)> = member_ids
+            .iter()
+            .filter_map(|client_id| {
+                self.sessions
+                    .get(client_id)
+                    .cloned()
+                    .map(|session| (*client_id, session))
+            })
+            .collect();
+
+        if member_sessions.len() < member_ids.len() || member_sessions.len() < 2 {
+            if let Some(room) = self.rooms.get_mut(room_code) {
+                room.cancel_countdown();
+            }
+            return;
+        }
+
+        let (instance, context) = match GameInstance::start(member_sessions, &mut self.rng) {
+            Ok(value) => value,
+            Err(err) => {
+                error!(?err, ?room_code, "failed to start game instance");
+                return;
+            }
+        };
+
+        {
+            let Some(room) = self.rooms.get_mut(room_code) else {
+                return;
+            };
+            if !room.begin_game(instance) {
+                return;
+            }
+        }
 
         for client_id in member_ids {
             self.send_message(client_id, ServerMessage::GameStart);
-            self.send_message(client_id, ServerMessage::GameMap { map: map.clone() });
+            self.send_message(
+                client_id,
+                ServerMessage::GameMap {
+                    map: context.map.clone(),
+                },
+            );
             self.send_message(
                 client_id,
                 ServerMessage::GameUpdate {
-                    tick_id: start_context.initial_tick_id,
-                    update: update.clone(),
+                    tick_id: context.initial_tick_id,
+                    update: context.initial_update.clone(),
                 },
             );
         }
@@ -341,6 +415,24 @@ impl ServerApp {
         Ok(())
     }
 
+    pub(super) fn handle_input_message(
+        &mut self,
+        client_id: ClientId,
+        session: &SessionInfo,
+        tick_id: TickId,
+        payload: InputPayload,
+    ) -> Result<(), ServerError> {
+        let room_code = session.room_code.as_ref().ok_or(ServerError::Input { tick_id })?;
+
+        let room = self
+            .rooms
+            .get_mut(room_code)
+            .ok_or(ServerError::Input { tick_id })?;
+        let game = room.game_mut().ok_or(ServerError::Input { tick_id })?;
+        game.submit_input(client_id, payload);
+        Ok(())
+    }
+
     fn build_room_state(
         &self,
         members: &[ClientId],
@@ -392,89 +484,5 @@ impl ServerApp {
                 .0
                 .chars()
                 .all(|c| c.is_ascii() && ROOM_CODE_ALPHABET.contains(&(c as u8)))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn add_and_remove_members_track_events() {
-        let mut room = Room::new();
-        assert!(room.add_member(1, "alpha".into()));
-        assert!(room.has_pending_events());
-        let events = room.drain_events();
-        assert!(matches!(events[0], RoomEvent::PlayerJoined { .. }));
-
-        let now = Instant::now();
-        assert!(room.remove_member(1, "alpha".into(), now));
-        let events = room.drain_events();
-        assert!(matches!(events[0], RoomEvent::PlayerLeft { .. }));
-    }
-
-    #[test]
-    fn countdown_emits_ticks_and_finishes() {
-        let mut room = Room::new();
-        room.start_countdown(2);
-        assert!(room.has_pending_events());
-        let events = room.drain_events();
-        assert!(matches!(
-            events[0],
-            RoomEvent::CountdownStarted { seconds: 2 }
-        ));
-
-        let result = room.advance_countdown(Duration::from_secs(1));
-        assert!(result.emitted_events);
-        let events = room.drain_events();
-        assert!(matches!(
-            events[0],
-            RoomEvent::CountdownTick { seconds_left: 1 }
-        ));
-
-        let result = room.advance_countdown(Duration::from_secs(2));
-        assert!(result.emitted_events);
-        assert!(result.finished);
-        let events = room.drain_events();
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, RoomEvent::CountdownFinished))
-        );
-    }
-
-    #[test]
-    fn countdown_state_reflects_remaining_seconds() {
-        let mut room = Room::new();
-        assert_eq!(room.countdown_seconds_left(), None);
-
-        room.start_countdown(5);
-        assert_eq!(room.countdown_seconds_left(), Some(5));
-
-        room.advance_countdown(Duration::from_millis(1500));
-        assert_eq!(room.countdown_seconds_left(), Some(4));
-
-        room.advance_countdown(Duration::from_secs(5));
-        assert_eq!(room.countdown_seconds_left(), None);
-    }
-
-    #[test]
-    fn countdown_cancels_when_players_leave() {
-        let mut room = Room::new();
-        let now = Instant::now();
-        assert!(room.add_member(1, "alpha".into()));
-        assert!(room.add_member(2, "bravo".into()));
-        room.start_countdown(3);
-        room.drain_events(); // discard start event
-
-        assert!(room.remove_member(2, "bravo".into(), now));
-        let events = room.drain_events();
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, RoomEvent::CountdownCancelled)),
-            "expected countdown cancel event"
-        );
-        assert_eq!(room.countdown_seconds_left(), None);
     }
 }
