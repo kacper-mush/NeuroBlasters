@@ -1,16 +1,17 @@
+mod connection;
 mod room;
 
 use std::{collections::HashMap, net::SocketAddr, net::UdpSocket, time::Duration, time::Instant};
 
 use common::{
-    API_VERSION, ApiVersion, ClientMessage, RoomCode, RoomMember, RoomState, RoomUpdate,
-    ServerError, ServerMessage, SessionId, decode_client_message, encode_server_message,
+    ClientMessage, ConnectError, RoomCode, ServerError, ServerMessage, decode_client_message,
+    encode_server_message,
 };
-use rand::{RngCore, SeedableRng, rngs::StdRng};
+use connection::SessionInfo;
+use rand::{SeedableRng, rngs::StdRng};
 use renet::{ClientId, ConnectionConfig, RenetServer, ServerEvent};
 use renet_netcode::{NetcodeServerTransport, ServerAuthentication, ServerConfig};
 use room::Room;
-use thiserror::Error;
 use tokio::time::{self, MissedTickBehavior};
 use tracing::{debug, error, info, trace, warn};
 use tracing_subscriber::EnvFilter;
@@ -118,140 +119,12 @@ impl ServerApp {
         self.server.update(delta);
         self.process_events();
         self.process_messages();
+        // Update room countdowns, members and broadcast updates.
         self.update_rooms(delta);
         // Send the queued packets to the clients.
         self.transport.send_packets(&mut self.server);
 
         Ok(())
-    }
-
-    fn update_rooms(&mut self, delta: Duration) {
-        let now = Instant::now();
-        let mut rooms_to_update = Vec::new();
-        let mut rooms_to_remove = Vec::new();
-
-        for (code, room) in self.rooms.iter_mut() {
-            if room.advance_countdown(delta) {
-                rooms_to_update.push(code.clone());
-            }
-
-            if room.should_remove(now, ROOM_IDLE_TIMEOUT) {
-                rooms_to_remove.push(code.clone());
-            }
-        }
-
-        for code in rooms_to_update {
-            self.broadcast_room_update(&code);
-        }
-
-        for code in rooms_to_remove {
-            self.rooms.remove(&code);
-        }
-    }
-
-    fn broadcast_room_update(&mut self, room_code: &RoomCode) {
-        let Some(room) = self.rooms.get_mut(room_code) else {
-            return;
-        };
-
-        if !room.has_pending_events() {
-            return;
-        }
-
-        let member_ids = room.member_ids();
-        let events = room.drain_events();
-        if member_ids.is_empty() || events.is_empty() {
-            return;
-        }
-
-        let state = self.build_room_state(&member_ids);
-        let update = RoomUpdate { state, events };
-        for client_id in member_ids {
-            self.send_message(
-                client_id,
-                ServerMessage::RoomUpdate {
-                    update: update.clone(),
-                },
-            );
-        }
-    }
-
-    fn build_room_state(&self, members: &[ClientId]) -> RoomState {
-        let mut list: Vec<RoomMember> = members
-            .iter()
-            .filter_map(|client_id| self.sessions.get(client_id))
-            .map(|session| RoomMember {
-                session_id: session.session_id,
-                nickname: session.nickname.clone(),
-            })
-            .collect();
-        list.sort_by(|a, b| a.nickname.cmp(&b.nickname));
-        RoomState { members: list }
-    }
-
-    fn build_room_state_for_code(&self, room_code: &RoomCode) -> RoomState {
-        self.rooms
-            .get(room_code)
-            .map(|room| self.build_room_state(&room.member_ids()))
-            .unwrap_or_else(|| RoomState {
-                members: Vec::new(),
-            })
-    }
-
-    fn detach_client_from_room(&mut self, client_id: ClientId) -> Option<RoomCode> {
-        let Some((room_code, nickname)) = self.sessions.get(&client_id).and_then(|session| {
-            session
-                .room_code
-                .clone()
-                .map(|code| (code, session.nickname.clone()))
-        }) else {
-            return None;
-        };
-
-        if let Some(room) = self.rooms.get_mut(&room_code) {
-            room.remove_member(client_id, nickname, Instant::now());
-        }
-        if let Some(session) = self.sessions.get_mut(&client_id) {
-            session.room_code = None;
-        }
-        Some(room_code)
-    }
-
-    fn client_room_code(&self, client_id: ClientId) -> Option<RoomCode> {
-        self.sessions
-            .get(&client_id)
-            .and_then(|session| session.room_code.clone())
-    }
-
-    fn generate_room_code(&mut self) -> RoomCode {
-        loop {
-            let code: String = (0..ROOM_CODE_LENGTH)
-                .map(|_| {
-                    let idx = (self.rng.next_u32() as usize) % ROOM_CODE_ALPHABET.len();
-                    ROOM_CODE_ALPHABET[idx] as char
-                })
-                .collect();
-            let room_code = RoomCode(code);
-            if !self.rooms.contains_key(&room_code) {
-                break room_code;
-            }
-        }
-    }
-
-    fn normalize_room_code(room_code: RoomCode) -> Option<RoomCode> {
-        let normalized = room_code.0.trim().to_ascii_uppercase();
-        if normalized.len() != ROOM_CODE_LENGTH {
-            return None;
-        }
-
-        if normalized
-            .chars()
-            .all(|c| c.is_ascii() && ROOM_CODE_ALPHABET.contains(&(c as u8)))
-        {
-            Some(RoomCode(normalized))
-        } else {
-            None
-        }
     }
 
     fn shutdown(&mut self) {
@@ -284,11 +157,7 @@ impl ServerApp {
         for client_id in client_ids {
             while let Some(bytes) = self.server.receive_message(client_id, RELIABLE_CHANNEL_ID) {
                 match decode_client_message(bytes.as_ref()) {
-                    Ok(message) => {
-                        if let Err(err) = self.handle_client_message(client_id, message) {
-                            self.send_error(client_id, err);
-                        }
-                    }
+                    Ok(message) => self.route_client_message(client_id, message),
                     Err(err) => {
                         debug!(client_id = %client_id, %err, "failed to decode client message");
                         self.send_error(client_id, ServerError::General);
@@ -298,202 +167,47 @@ impl ServerApp {
         }
     }
 
-    fn handle_client_message(
-        &mut self,
-        client_id: ClientId,
-        message: ClientMessage,
-    ) -> Result<(), ServerError> {
-        trace!(client_id = %client_id, ?message, "received client message");
+    fn route_client_message(&mut self, client_id: ClientId, message: ClientMessage) {
         match message {
             ClientMessage::Connect {
                 api_version,
                 nickname,
-            } => self.handle_connect_message(client_id, api_version, nickname)?,
+            } => {
+                if let Err(err) = self.handle_connect_message(client_id, api_version, nickname) {
+                    self.send_error(client_id, err.into());
+                }
+            }
+            other => {
+                let Some(session_snapshot) = self.sessions.get(&client_id).cloned() else {
+                    self.send_error(client_id, ConnectError::HandshakeRequired.into());
+                    return;
+                };
+                if let Err(err) = self.handle_client_message(client_id, &session_snapshot, other) {
+                    self.send_error(client_id, err);
+                }
+            }
+        }
+    }
+
+    fn handle_client_message(
+        &mut self,
+        client_id: ClientId,
+        session: &SessionInfo,
+        message: ClientMessage,
+    ) -> Result<(), ServerError> {
+        trace!(client_id = %client_id, ?message, "received client message");
+        match message {
             ClientMessage::Disconnect => self.handle_disconnect_request(client_id)?,
-            ClientMessage::RoomCreate => self.handle_room_create(client_id)?,
-            ClientMessage::RoomJoin { room_code } => self.handle_room_join(client_id, room_code)?,
+            ClientMessage::RoomCreate => self.handle_room_create(client_id, session)?,
+            ClientMessage::RoomJoin { room_code } => {
+                self.handle_room_join(client_id, session, room_code)?
+            }
             ClientMessage::RoomLeave => self.handle_room_leave(client_id)?,
             ClientMessage::RoomStartCountdown { seconds } => {
-                self.handle_room_start_countdown(client_id, seconds)?
+                self.handle_room_start_countdown(session, seconds)?
             }
             other => self.handle_unimplemented_message(client_id, other)?,
         }
-        Ok(())
-    }
-
-    fn handle_connect_message(
-        &mut self,
-        client_id: ClientId,
-        api_version: u16,
-        nickname: String,
-    ) -> Result<(), ConnectError> {
-        let requested_version = ApiVersion(api_version);
-
-        if requested_version != API_VERSION {
-            self.server.disconnect(client_id);
-            return Err(ConnectError::ApiVersionMismatch {
-                requested: requested_version.0,
-                expected: API_VERSION.0,
-            });
-        }
-
-        // If we already have an authenticated session for this client_id,
-        // treat this as a duplicate handshake attempt.
-        if let Some(existing) = self.sessions.get(&client_id) {
-            return Err(ConnectError::DuplicateHandshake {
-                session_id: existing.session_id,
-            });
-        }
-
-        let session_id = self.next_session_id();
-        let nickname = nickname.trim().to_owned();
-        info!(
-            client_id = %client_id,
-            session_id = session_id.0,
-            nickname = %nickname,
-            "handshake successful"
-        );
-
-        self.sessions.insert(
-            client_id,
-            SessionInfo {
-                session_id,
-                nickname,
-                room_code: None,
-            },
-        );
-
-        self.send_message(client_id, ServerMessage::ConnectOk { session_id });
-        Ok(())
-    }
-
-    fn handle_disconnect_request(&mut self, client_id: ClientId) -> Result<(), DisconnectError> {
-        debug!(client_id = %client_id, "client requested disconnect");
-        if !self.sessions.contains_key(&client_id) {
-            return Err(DisconnectError::NotConnected);
-        }
-
-        if let Some(room_code) = self.detach_client_from_room(client_id) {
-            self.broadcast_room_update(&room_code);
-        }
-
-        self.sessions.remove(&client_id);
-        self.server.disconnect(client_id);
-        Ok(())
-    }
-
-    fn handle_room_create(&mut self, client_id: ClientId) -> Result<(), RoomCreateError> {
-        let (nickname, current_room) = self
-            .sessions
-            .get(&client_id)
-            .map(|session| (session.nickname.clone(), session.room_code.clone()))
-            .ok_or(RoomCreateError::NotConnected)?;
-
-        if let Some(room_code) = current_room {
-            return Err(RoomCreateError::AlreadyInRoom { room_code });
-        }
-
-        let room_code = self.generate_room_code();
-        let mut room = Room::new();
-        room.add_member(client_id, nickname.clone());
-        self.rooms.insert(room_code.clone(), room);
-
-        if let Some(session) = self.sessions.get_mut(&client_id) {
-            session.room_code = Some(room_code.clone());
-        }
-
-        self.send_message(
-            client_id,
-            ServerMessage::RoomCreateOk {
-                room_code: room_code.clone(),
-            },
-        );
-        self.broadcast_room_update(&room_code);
-        Ok(())
-    }
-
-    fn handle_room_join(
-        &mut self,
-        client_id: ClientId,
-        room_code: RoomCode,
-    ) -> Result<(), RoomJoinError> {
-        let (nickname, current_room) = self
-            .sessions
-            .get(&client_id)
-            .map(|session| (session.nickname.clone(), session.room_code.clone()))
-            .ok_or(RoomJoinError::NotConnected)?;
-
-        if let Some(room_code) = current_room {
-            return Err(RoomJoinError::AlreadyInRoom { room_code });
-        }
-
-        let normalized = Self::normalize_room_code(room_code.clone())
-            .ok_or_else(|| RoomJoinError::InvalidCode { room_code })?;
-
-        {
-            let room = self
-                .rooms
-                .get_mut(&normalized)
-                .ok_or_else(|| RoomJoinError::NotFound {
-                    room_code: normalized.clone(),
-                })?;
-
-            if !room.add_member(client_id, nickname) {
-                return Err(RoomJoinError::AlreadyInRoom {
-                    room_code: normalized.clone(),
-                });
-            }
-        }
-
-        if let Some(session) = self.sessions.get_mut(&client_id) {
-            session.room_code = Some(normalized.clone());
-        }
-
-        let state = self.build_room_state_for_code(&normalized);
-        self.send_message(client_id, ServerMessage::RoomJoinOk { state });
-        self.broadcast_room_update(&normalized);
-        Ok(())
-    }
-
-    fn handle_room_leave(&mut self, client_id: ClientId) -> Result<(), RoomLeaveError> {
-        if self.sessions.get(&client_id).is_none() {
-            return Err(RoomLeaveError::NotConnected);
-        }
-
-        let Some(room_code) = self.detach_client_from_room(client_id) else {
-            return Err(RoomLeaveError::NotInRoom);
-        };
-
-        self.send_message(client_id, ServerMessage::RoomLeaveOk);
-        self.broadcast_room_update(&room_code);
-        Ok(())
-    }
-
-    fn handle_room_start_countdown(
-        &mut self,
-        client_id: ClientId,
-        seconds: u32,
-    ) -> Result<(), CountdownError> {
-        if self.sessions.get(&client_id).is_none() {
-            return Err(CountdownError::NotConnected);
-        }
-
-        if seconds == 0 {
-            return Err(CountdownError::InvalidSeconds);
-        }
-
-        let room_code = self
-            .client_room_code(client_id)
-            .ok_or(CountdownError::NotInRoom)?;
-
-        {
-            let room = self
-                .rooms
-                .get_mut(&room_code)
-                .ok_or(CountdownError::NotInRoom)?;
-            room.start_countdown(seconds);
-        }
-        self.broadcast_room_update(&room_code);
         Ok(())
     }
 
@@ -508,7 +222,7 @@ impl ServerApp {
                     client_id = %client_id,
                     "received message before handshake completed"
                 );
-                return Err(ServerError::Connect);
+                return Err(ConnectError::HandshakeRequired.into());
             } else {
                 warn!(client_id = %client_id, "received message for unknown client");
             }
@@ -532,104 +246,5 @@ impl ServerApp {
                 error!(client_id = %client_id, %err, ?message, "failed to encode server message");
             }
         }
-    }
-
-    fn next_session_id(&mut self) -> SessionId {
-        SessionId(self.rng.next_u64())
-    }
-}
-
-#[derive(Debug, Clone)]
-struct SessionInfo {
-    session_id: SessionId,
-    nickname: String,
-    room_code: Option<RoomCode>,
-}
-
-#[derive(Debug, Error)]
-enum ConnectError {
-    #[error("api version mismatch: requested {requested}, expected {expected}")]
-    ApiVersionMismatch { requested: u16, expected: u16 },
-    #[error("client attempted duplicate handshake (session {session_id:?})")]
-    DuplicateHandshake { session_id: SessionId },
-}
-
-#[derive(Debug, Error)]
-enum DisconnectError {
-    #[error("client is not connected")]
-    NotConnected,
-}
-
-#[derive(Debug, Error)]
-enum RoomCreateError {
-    #[error("client is not connected")]
-    NotConnected,
-    #[error("client already belongs to room {room_code:?}")]
-    AlreadyInRoom { room_code: RoomCode },
-}
-
-#[derive(Debug, Error)]
-enum RoomJoinError {
-    #[error("client is not connected")]
-    NotConnected,
-    #[error("client already belongs to room {room_code:?}")]
-    AlreadyInRoom { room_code: RoomCode },
-    #[error("room code {room_code:?} is invalid")]
-    InvalidCode { room_code: RoomCode },
-    #[error("room {room_code:?} was not found")]
-    NotFound { room_code: RoomCode },
-}
-
-#[derive(Debug, Error)]
-enum RoomLeaveError {
-    #[error("client is not connected")]
-    NotConnected,
-    #[error("client is not part of any room")]
-    NotInRoom,
-}
-
-#[derive(Debug, Error)]
-enum CountdownError {
-    #[error("client is not connected")]
-    NotConnected,
-    #[error("client is not part of any room")]
-    NotInRoom,
-    #[error("countdown duration must be greater than zero")]
-    InvalidSeconds,
-}
-
-impl From<ConnectError> for ServerError {
-    fn from(_: ConnectError) -> Self {
-        ServerError::Connect
-    }
-}
-
-impl From<DisconnectError> for ServerError {
-    fn from(_: DisconnectError) -> Self {
-        ServerError::Connect
-    }
-}
-
-impl From<RoomCreateError> for ServerError {
-    fn from(_: RoomCreateError) -> Self {
-        ServerError::RoomCreate
-    }
-}
-
-impl From<RoomJoinError> for ServerError {
-    fn from(_: RoomJoinError) -> Self {
-        ServerError::RoomJoin
-    }
-}
-
-impl From<RoomLeaveError> for ServerError {
-    fn from(_: RoomLeaveError) -> Self {
-        ServerError::RoomLeave
-    }
-}
-
-impl From<CountdownError> for ServerError {
-    fn from(_: CountdownError) -> Self {
-        ServerError::General
     }
 }

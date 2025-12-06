@@ -3,8 +3,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use common::RoomEvent;
+use common::{
+    CountdownError, RoomCode, RoomCreateError, RoomEvent, RoomJoinError, RoomLeaveError,
+    RoomMember, RoomState, RoomUpdate, ServerMessage,
+};
+use rand::RngCore;
 use renet::ClientId;
+
+use crate::{ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_IDLE_TIMEOUT, ServerApp, SessionInfo};
 
 pub struct Room {
     members: HashSet<ClientId>,
@@ -92,6 +98,230 @@ impl Room {
             self.empty_since = None;
             false
         }
+    }
+}
+
+impl ServerApp {
+    pub(super) fn update_rooms(&mut self, delta: Duration) {
+        let now = Instant::now();
+        let mut rooms_to_update = Vec::new();
+        let mut rooms_to_remove = Vec::new();
+
+        for (code, room) in self.rooms.iter_mut() {
+            if room.advance_countdown(delta) {
+                rooms_to_update.push(code.clone());
+            }
+
+            if room.should_remove(now, ROOM_IDLE_TIMEOUT) {
+                rooms_to_remove.push(code.clone());
+            }
+        }
+
+        for code in rooms_to_update {
+            self.broadcast_room_update(&code);
+        }
+
+        for code in rooms_to_remove {
+            self.rooms.remove(&code);
+        }
+    }
+
+    pub(super) fn broadcast_room_update(&mut self, room_code: &RoomCode) {
+        let Some(room) = self.rooms.get_mut(room_code) else {
+            return;
+        };
+
+        if !room.has_pending_events() {
+            return;
+        }
+
+        let member_ids = room.member_ids();
+        let events = room.drain_events();
+        if member_ids.is_empty() || events.is_empty() {
+            return;
+        }
+
+        let state = self.build_room_state(&member_ids);
+        let update = RoomUpdate { state, events };
+        for client_id in member_ids {
+            self.send_message(
+                client_id,
+                ServerMessage::RoomUpdate {
+                    update: update.clone(),
+                },
+            );
+        }
+    }
+
+    pub(super) fn detach_client_from_room(&mut self, client_id: ClientId) -> Option<RoomCode> {
+        let Some((room_code, nickname)) = self.sessions.get(&client_id).and_then(|session| {
+            session
+                .room_code
+                .clone()
+                .map(|code| (code, session.nickname.clone()))
+        }) else {
+            return None;
+        };
+
+        if let Some(room) = self.rooms.get_mut(&room_code) {
+            room.remove_member(client_id, nickname, Instant::now());
+        }
+        if let Some(session) = self.sessions.get_mut(&client_id) {
+            session.room_code = None;
+        }
+        Some(room_code)
+    }
+
+    pub(super) fn handle_room_create(
+        &mut self,
+        client_id: ClientId,
+        session: &SessionInfo,
+    ) -> Result<(), RoomCreateError> {
+        let nickname = session.nickname.clone();
+        let current_room = session.room_code.clone();
+
+        if let Some(room_code) = current_room {
+            return Err(RoomCreateError::AlreadyInRoom { room_code });
+        }
+
+        let room_code = self.generate_room_code();
+        let mut room = Room::new();
+        room.add_member(client_id, nickname.clone());
+        self.rooms.insert(room_code.clone(), room);
+
+        if let Some(session) = self.sessions.get_mut(&client_id) {
+            session.room_code = Some(room_code.clone());
+        }
+
+        self.send_message(
+            client_id,
+            ServerMessage::RoomCreateOk {
+                room_code: room_code.clone(),
+            },
+        );
+        self.broadcast_room_update(&room_code);
+        Ok(())
+    }
+
+    pub(super) fn handle_room_join(
+        &mut self,
+        client_id: ClientId,
+        session: &SessionInfo,
+        room_code: RoomCode,
+    ) -> Result<(), RoomJoinError> {
+        let nickname = session.nickname.clone();
+        let current_room = session.room_code.clone();
+
+        if let Some(room_code) = current_room {
+            return Err(RoomJoinError::AlreadyInRoom { room_code });
+        }
+
+        if !Self::is_valid_room_code(&room_code) {
+            return Err(RoomJoinError::InvalidCode {
+                room_code: room_code.clone(),
+            });
+        }
+
+        {
+            let room = self
+                .rooms
+                .get_mut(&room_code)
+                .ok_or_else(|| RoomJoinError::NotFound {
+                    room_code: room_code.clone(),
+                })?;
+
+            if !room.add_member(client_id, nickname) {
+                return Err(RoomJoinError::AlreadyInRoom {
+                    room_code: room_code.clone(),
+                });
+            }
+        }
+
+        if let Some(session) = self.sessions.get_mut(&client_id) {
+            session.room_code = Some(room_code.clone());
+        }
+
+        let state = self.build_room_state_for_code(&room_code);
+        self.send_message(client_id, ServerMessage::RoomJoinOk { state });
+        self.broadcast_room_update(&room_code);
+        Ok(())
+    }
+
+    pub(super) fn handle_room_leave(&mut self, client_id: ClientId) -> Result<(), RoomLeaveError> {
+        let Some(room_code) = self.detach_client_from_room(client_id) else {
+            return Err(RoomLeaveError::NotInRoom);
+        };
+
+        self.send_message(client_id, ServerMessage::RoomLeaveOk);
+        self.broadcast_room_update(&room_code);
+        Ok(())
+    }
+
+    pub(super) fn handle_room_start_countdown(
+        &mut self,
+        session: &SessionInfo,
+        seconds: u32,
+    ) -> Result<(), CountdownError> {
+        if seconds == 0 {
+            return Err(CountdownError::InvalidSeconds);
+        }
+
+        let room_code = session.room_code.clone().ok_or(CountdownError::NotInRoom)?;
+
+        {
+            let room = self
+                .rooms
+                .get_mut(&room_code)
+                .ok_or(CountdownError::NotInRoom)?;
+            room.start_countdown(seconds);
+        }
+        self.broadcast_room_update(&room_code);
+        Ok(())
+    }
+
+    fn build_room_state(&self, members: &[ClientId]) -> RoomState {
+        let mut list: Vec<RoomMember> = members
+            .iter()
+            .filter_map(|client_id| self.sessions.get(client_id))
+            .map(|session| RoomMember {
+                session_id: session.session_id,
+                nickname: session.nickname.clone(),
+            })
+            .collect();
+        list.sort_by(|a, b| a.nickname.cmp(&b.nickname));
+        RoomState { members: list }
+    }
+
+    fn build_room_state_for_code(&self, room_code: &RoomCode) -> RoomState {
+        self.rooms
+            .get(room_code)
+            .map(|room| self.build_room_state(&room.member_ids()))
+            .unwrap_or_else(|| RoomState {
+                members: Vec::new(),
+            })
+    }
+
+    fn generate_room_code(&mut self) -> RoomCode {
+        loop {
+            let code: String = (0..ROOM_CODE_LENGTH)
+                .map(|_| {
+                    let idx = (self.rng.next_u32() as usize) % ROOM_CODE_ALPHABET.len();
+                    ROOM_CODE_ALPHABET[idx] as char
+                })
+                .collect();
+            let room_code = RoomCode(code);
+            if !self.rooms.contains_key(&room_code) {
+                break room_code;
+            }
+        }
+    }
+
+    fn is_valid_room_code(room_code: &RoomCode) -> bool {
+        room_code.0.len() == ROOM_CODE_LENGTH
+            && room_code
+                .0
+                .chars()
+                .all(|c| c.is_ascii() && ROOM_CODE_ALPHABET.contains(&(c as u8)))
     }
 }
 

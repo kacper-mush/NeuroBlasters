@@ -86,22 +86,59 @@ pub enum ServerMessage {
 #[derive(Debug, Clone, PartialEq, Eq, Error, Encode, Decode)]
 pub enum ServerError {
     #[error("Handshake error")]
-    Connect,
-    /// Lobby creation failed.
+    Connect(#[from] ConnectError),
     #[error("Room creation error")]
-    RoomCreate,
-    /// Joining a lobby failed.
+    RoomCreate(#[from] RoomCreateError),
     #[error("Room join error")]
-    RoomJoin,
-    /// Leaving a lobby failed.
+    RoomJoin(#[from] RoomJoinError),
     #[error("Room leave error")]
-    RoomLeave,
-    /// Input for a given tick was rejected.
+    RoomLeave(#[from] RoomLeaveError),
+    #[error("Room countdown error")]
+    RoomCountdown(#[from] CountdownError),
     #[error("Input error at tick {tick_id:?}")]
     Input { tick_id: TickId },
-    /// Catch–all fatal / internal errors not covered by the categories above.
     #[error("Server error")]
     General,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
+pub enum ConnectError {
+    #[error("api version mismatch: requested {requested}, expected {expected}")]
+    ApiVersionMismatch { requested: u16, expected: u16 },
+    #[error("client attempted duplicate handshake (session {session_id:?})")]
+    DuplicateHandshake { session_id: SessionId },
+    #[error("client must complete handshake before sending messages")]
+    HandshakeRequired,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
+pub enum RoomCreateError {
+    #[error("client already belongs to room {room_code:?}")]
+    AlreadyInRoom { room_code: RoomCode },
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
+pub enum RoomJoinError {
+    #[error("client already belongs to room {room_code:?}")]
+    AlreadyInRoom { room_code: RoomCode },
+    #[error("room code {room_code:?} is invalid")]
+    InvalidCode { room_code: RoomCode },
+    #[error("room {room_code:?} was not found")]
+    NotFound { room_code: RoomCode },
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
+pub enum RoomLeaveError {
+    #[error("client is not part of any room")]
+    NotInRoom,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
+pub enum CountdownError {
+    #[error("client is not part of any room")]
+    NotInRoom,
+    #[error("countdown duration must be greater than zero")]
+    InvalidSeconds,
 }
 
 // Concrete message payload structs -----------------------------------------
