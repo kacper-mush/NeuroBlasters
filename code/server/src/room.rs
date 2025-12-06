@@ -11,9 +11,9 @@ use rand::RngCore;
 use renet::ClientId;
 
 use crate::{
+    ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_IDLE_TIMEOUT, ServerApp, SessionInfo,
     countdown::{CountdownAdvance, CountdownTimer},
     game::GameInstance,
-    ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_IDLE_TIMEOUT, ServerApp, SessionInfo,
 };
 
 #[derive(Default)]
@@ -44,10 +44,10 @@ impl Room {
     pub fn remove_member(&mut self, client_id: ClientId, nickname: String, now: Instant) -> bool {
         if self.members.remove(&client_id) {
             self.pending_events.push(RoomEvent::PlayerLeft { nickname });
-            if let Some(game) = self.game.as_mut() {
-                if game.remove_client(client_id) {
-                    self.game = None;
-                }
+            if let Some(game) = self.game.as_mut()
+                && game.remove_client(client_id)
+            {
+                self.game = None;
             }
             if self.members.is_empty() {
                 self.empty_since = Some(now);
@@ -100,9 +100,7 @@ impl Room {
     }
 
     pub fn advance_game(&mut self, delta: Duration) -> Option<(TickId, GameUpdate)> {
-        let Some(game) = self.game.as_mut() else {
-            return None;
-        };
+        let game = self.game.as_mut()?;
 
         match game.advance(delta) {
             Some(result) => Some(result),
@@ -113,6 +111,7 @@ impl Room {
         }
     }
 
+    #[cfg(test)]
     pub fn has_pending_events(&self) -> bool {
         !self.pending_events.is_empty()
     }
