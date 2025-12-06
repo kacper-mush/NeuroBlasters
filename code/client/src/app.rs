@@ -1,7 +1,9 @@
+use crate::game::Game;
+use crate::server::Server;
 use crate::ui::{self, Button, Field, Text, TextField};
-use macroquad::prelude::{state_machine::State, *};
+use macroquad::prelude::*;
 
-trait AppState {
+pub(crate) trait AppState {
     fn update(&mut self) -> StateAction;
     fn draw(&mut self);
     /// Decides whether this is a base view, or if it is an overlay.
@@ -12,7 +14,7 @@ trait AppState {
     fn on_resume(&mut self) {}
 }
 
-enum StateAction {
+pub(crate) enum StateAction {
     None,
     /// Add a new state on top (another menu, etc.)
     Push(Box<dyn AppState>),
@@ -244,6 +246,7 @@ enum ServerConnectButtons {
 
 struct ServerConnectMenu {
     button_pressed: Option<ServerConnectButtons>,
+    message: Option<String>,
     servername_field: TextField,
 }
 
@@ -251,6 +254,7 @@ impl ServerConnectMenu {
     fn new() -> Self {
         ServerConnectMenu {
             button_pressed: None,
+            message: None,
             servername_field: TextField::new(Field::default(), TextParams::default(), 30),
         }
     }
@@ -266,7 +270,11 @@ impl AppState for ServerConnectMenu {
         let sep = 80.;
 
         Text::new_simple(30).draw("Connect to server", x_mid, 200.);
-        Text::new_simple(20).draw("Enter server name:", x_mid, 230.);
+
+        let default_message = "Enter server name:";
+
+        let message = self.message.as_deref().unwrap_or(default_message);
+        Text::new_simple(20).draw(message, x_mid, 230.);
 
         self.servername_field.draw_centered(x_mid, y_start, w, h);
 
@@ -292,105 +300,219 @@ impl AppState for ServerConnectMenu {
 
         match self.button_pressed {
             Some(button) => match button {
-                ServerConnectButtons::Connect => StateAction::None,
+                ServerConnectButtons::Connect => {
+                    let server = Server::new();
+                    if server.connect(self.servername_field.text()) {
+                        return StateAction::Push(Box::new(RoomMenu::new(server)));
+                    }
+
+                    self.message = Some("Could not connect to the server!".into());
+                    StateAction::None
+                }
                 ServerConnectButtons::Back => StateAction::Pop(1),
             },
             None => StateAction::None,
         }
     }
-}
 
-struct Game;
-
-impl AppState for Game {
-    fn draw(&mut self) {
-        // Just a blue rectangle in the center of the screen
-        let rect_size = 100.0;
-        draw_rectangle(
-            screen_width() / 2.0 - rect_size / 2.0,
-            screen_height() / 2.0 - rect_size / 2.0,
-            rect_size,
-            rect_size,
-            BLUE,
-        );
-
-        draw_text(
-            "Game is running. Press ESC for menu.",
-            20.0,
-            30.0,
-            20.0,
-            DARKGRAY,
-        );
-    }
-
-    fn update(&mut self) -> StateAction {
-        if is_key_pressed(KeyCode::Escape) {
-            return StateAction::Push(Box::new(InGameMenu::new()));
-        }
-
-        StateAction::None
+    fn on_resume(&mut self) {
+        *self = Self::new()
     }
 }
 
-struct InGameMenu {
-    resume_clicked: bool,
-    quit_clicked: bool,
+#[derive(Clone, Copy)]
+enum RoomMenuButtons {
+    Create,
+    Join,
+    Back,
 }
 
-impl InGameMenu {
-    fn new() -> Self {
-        InGameMenu {
-            resume_clicked: false,
-            quit_clicked: false,
+struct RoomMenu {
+    button_pressed: Option<RoomMenuButtons>,
+    room_code_field: TextField,
+    server: Server,
+    message: Option<String>,
+}
+
+impl RoomMenu {
+    fn new(server: Server) -> Self {
+        RoomMenu {
+            button_pressed: None,
+            room_code_field: TextField::new(Field::default(), TextParams::default(), 10),
+            server,
+            message: None,
         }
     }
 }
 
-impl AppState for InGameMenu {
+impl AppState for RoomMenu {
     fn draw(&mut self) {
         let x_mid = screen_width() / 2.;
-        let default_text_params = TextParams {
-            font_size: 30,
-            ..Default::default()
-        };
+        let mut button = Button::new(Field::default(), Some(TextParams::default()));
+        let w = 300.;
+        let h = 50.;
+        let y_start = 270.;
+        let sep = 80.;
 
-        // Menu grays the previous view
-        draw_rectangle(
-            0.,
-            0.,
-            screen_width(),
-            screen_height(),
-            Color::new(0.0, 0.0, 0.0, 0.5),
-        );
+        self.button_pressed = None;
 
-        ui::Text::new_simple(40).draw("PAUSED", x_mid, 150.);
+        Text::new_simple(30).draw("Rooms", x_mid, 200.);
+        if button
+            .draw_centered(x_mid, y_start, w, h, Some("Create"))
+            .poll()
+        {
+            self.button_pressed = Some(RoomMenuButtons::Create);
+        }
 
-        self.resume_clicked = ui::Button::new(Field::default(), Some(default_text_params.clone()))
-            .draw_centered(x_mid, 250., 250., 50., Some("Resume"))
-            .poll();
+        Text::new_simple(30).draw("Room code:", x_mid, y_start + sep);
 
-        self.quit_clicked = ui::Button::new(Field::default(), Some(default_text_params.clone()))
-            .draw_centered(x_mid, 320., 250., 50., Some("Exit to Main Menu"))
-            .poll();
+        self.room_code_field
+            .draw_centered(x_mid, y_start + 2. * sep, w, h);
+
+        if button
+            .draw_centered(x_mid, y_start + 3. * sep, w, h, Some("Join"))
+            .poll()
+        {
+            self.button_pressed = Some(RoomMenuButtons::Join);
+        }
+
+        if button
+            .draw_centered(x_mid, y_start + 4. * sep, w, h, Some("Back"))
+            .poll()
+        {
+            self.button_pressed = Some(RoomMenuButtons::Back);
+        }
+
+        if let Some(message) = self.message.clone() {
+            Text::new_simple(30).draw(&message, x_mid, y_start + 5. * sep);
+        }
     }
 
     fn update(&mut self) -> StateAction {
-        if self.resume_clicked {
-            return StateAction::Pop(1);
-        }
+        self.room_code_field.update();
 
-        if self.quit_clicked {
-            return StateAction::Pop(2);
-        }
+        match self.button_pressed {
+            Some(button) => match button {
+                RoomMenuButtons::Create => {
+                    if self.server.create_room() {
+                        StateAction::Push(Box::new(RoomView::new(self.server.clone())))
+                    } else {
+                        self.message = Some("Could not create the room!".into());
+                        StateAction::None
+                    }
+                }
+                RoomMenuButtons::Join => {
+                    let room_code = self.room_code_field.text().parse::<u32>();
+                    if room_code.is_err() {
+                        self.message = Some("Invalid room code!".into());
+                        return StateAction::None;
+                    }
 
-        if is_key_pressed(KeyCode::Escape) {
-            return StateAction::Pop(1);
-        }
+                    if self.server.join_room(room_code.unwrap()) {
+                        return StateAction::Push(Box::new(RoomView::new(self.server.clone())));
+                    }
 
-        StateAction::None
+                    self.message = Some("Could not join the room!".into());
+                    StateAction::None
+                }
+                RoomMenuButtons::Back => StateAction::Pop(1),
+            },
+            None => StateAction::None,
+        }
     }
 
-    fn draw_previous(&self) -> bool {
-        true
+    fn on_resume(&mut self) {
+        *self = Self::new(self.server.clone())
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RoomViewButtons {
+    Start,
+    Leave,
+}
+
+struct RoomView {
+    button_pressed: Option<RoomViewButtons>,
+    server: Server,
+    room_code: u32,
+    player_names: Vec<String>,
+}
+
+impl RoomView {
+    fn new(server: Server) -> Self {
+        Self {
+            button_pressed: None,
+            server,
+            room_code: 0,
+            player_names: Vec::new(),
+        }
+    }
+}
+
+impl AppState for RoomView {
+    fn draw(&mut self) {
+        let x_mid = screen_width() / 2.;
+        let mut button = Button::new(Field::default(), Some(TextParams::default()));
+        let w = 300.;
+        let h = 50.;
+        let y_start = 200.;
+        let sep = 40.;
+        let mut offset = 0.;
+
+        let title = format!("Room: {}", self.room_code);
+        Text::new_simple(40).draw(&title, x_mid, y_start + offset);
+        offset += sep;
+        Text::new_simple(30).draw("Players:", x_mid, y_start + offset);
+        offset += sep;
+        for name in &self.player_names {
+            Text::new_simple(25).draw(name, x_mid, y_start + offset);
+            offset += sep;
+        }
+
+        self.button_pressed = None;
+
+        if button
+            .draw_centered(x_mid, y_start + offset, w, h, Some("Start"))
+            .poll()
+        {
+            self.button_pressed = Some(RoomViewButtons::Start);
+        }
+        offset += 100.;
+        if button
+            .draw_centered(x_mid, y_start + offset, w, h, Some("Back"))
+            .poll()
+        {
+            self.button_pressed = Some(RoomViewButtons::Leave);
+        }
+    }
+
+    fn update(&mut self) -> StateAction {
+        self.room_code = match self.server.get_room_code() {
+            Ok(code) => code,
+            Err(e) => return StateAction::Pop(1),
+        };
+
+        self.player_names = match self.server.get_player_list() {
+            Ok(player_list) => player_list,
+            Err(e) => return StateAction::Pop(1),
+        };
+
+        match self.button_pressed {
+            Some(button) => match button {
+                RoomViewButtons::Leave => {
+                    self.server.leave();
+                    StateAction::Pop(1)
+                }
+                RoomViewButtons::Start => {
+                    if self.server.start_game() {
+                        return StateAction::Push(Box::new(Game::new(self.server.clone())));
+                    }
+
+                    StateAction::None
+                }
+            },
+            None => StateAction::None,
+        }
     }
 }

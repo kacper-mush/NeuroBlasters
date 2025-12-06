@@ -270,4 +270,8 @@ impl TextField {
             }
         }
     }
+
+    pub fn text(&self) -> String {
+        self.text_string.clone()
+    }
 }
