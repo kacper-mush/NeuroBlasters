@@ -35,7 +35,7 @@ pub struct BotAgent {
 
 impl BotAgent {
     pub fn new(difficulty: BotDifficulty, seed: u64) -> Self {
-        let mut rng = StdRng::seed_from_u64(seed);
+        let rng = StdRng::seed_from_u64(seed);
 
         // Factory: Pick the right brain based on difficulty
         let policy: Box<dyn Policy> = match difficulty {
