@@ -18,3 +18,14 @@ pub fn decode_client_message(bytes: &[u8]) -> Result<ClientMessage, DecodeError>
     let (message, _) = decode_from_slice(bytes, bincode_config())?;
     Ok(message)
 }
+
+/// Serialize a [`ClientMessage`] for sending to the server.
+pub fn encode_client_message(message: &ClientMessage) -> Result<Vec<u8>, EncodeError> {
+    encode_to_vec(message, bincode_config())
+}
+
+/// Deserialize a [`ServerMessage`] received from the server.
+pub fn decode_server_message(bytes: &[u8]) -> Result<ServerMessage, DecodeError> {
+    let (message, _) = decode_from_slice(bytes, bincode_config())?;
+    Ok(message)
+}

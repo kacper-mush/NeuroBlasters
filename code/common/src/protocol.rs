@@ -4,7 +4,7 @@ use thiserror::Error;
 
 // Message enums -------------------------------------------------------------
 
-pub const API_VERSION: ApiVersion = ApiVersion(1);
+pub const API_VERSION: ApiVersion = ApiVersion(2);
 
 /// All messages that the client can send to the server.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
@@ -19,6 +19,8 @@ pub enum ClientMessage {
     RoomJoin { room_code: RoomCode },
     /// Leave the current lobby (only before the game starts).
     RoomLeave,
+    /// Request the room countdown to start.
+    RoomStartCountdown { seconds: u32 },
     /// Provide input for a future simulation tick.
     Input {
         tick_id: TickId,
@@ -41,9 +43,9 @@ pub enum ServerMessage {
     RoomJoinOk {
         state: RoomState,
     },
-    /// Lobby state broadcast whenever player list / settings change.
-    RoomState {
-        state: RoomState,
+    /// Lobby update broadcast whenever player list / countdown change.
+    RoomUpdate {
+        update: RoomUpdate,
     },
     /// Room leave result; players can't leave the room once game started.
     RoomLeaveOk,
@@ -88,22 +90,59 @@ pub enum ServerMessage {
 #[derive(Debug, Clone, PartialEq, Eq, Error, Encode, Decode)]
 pub enum ServerError {
     #[error("Handshake error")]
-    Connect,
-    /// Lobby creation failed.
+    Connect(#[from] ConnectError),
     #[error("Room creation error")]
-    RoomCreate,
-    /// Joining a lobby failed.
+    RoomCreate(#[from] RoomCreateError),
     #[error("Room join error")]
-    RoomJoin,
-    /// Leaving a lobby failed.
+    RoomJoin(#[from] RoomJoinError),
     #[error("Room leave error")]
-    RoomLeave,
-    /// Input for a given tick was rejected.
+    RoomLeave(#[from] RoomLeaveError),
+    #[error("Room countdown error")]
+    RoomCountdown(#[from] CountdownError),
     #[error("Input error at tick {tick_id:?}")]
     Input { tick_id: TickId },
-    /// Catch–all fatal / internal errors not covered by the categories above.
     #[error("Server error")]
     General,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
+pub enum ConnectError {
+    #[error("api version mismatch: requested {requested}, expected {expected}")]
+    ApiVersionMismatch { requested: u16, expected: u16 },
+    #[error("client attempted duplicate handshake (session {session_id:?})")]
+    DuplicateHandshake { session_id: SessionId },
+    #[error("client must complete handshake before sending messages")]
+    HandshakeRequired,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
+pub enum RoomCreateError {
+    #[error("client already belongs to room {room_code:?}")]
+    AlreadyInRoom { room_code: RoomCode },
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
+pub enum RoomJoinError {
+    #[error("client already belongs to room {room_code:?}")]
+    AlreadyInRoom { room_code: RoomCode },
+    #[error("room code {room_code:?} is invalid")]
+    InvalidCode { room_code: RoomCode },
+    #[error("room {room_code:?} was not found")]
+    NotFound { room_code: RoomCode },
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
+pub enum RoomLeaveError {
+    #[error("client is not part of any room")]
+    NotInRoom,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
+pub enum CountdownError {
+    #[error("client is not part of any room")]
+    NotInRoom,
+    #[error("countdown duration must be greater than zero")]
+    InvalidSeconds,
 }
 
 // Concrete message payload structs -----------------------------------------
@@ -119,8 +158,8 @@ pub struct ApiVersion(pub u16);
 pub struct SessionId(pub u64);
 
 /// Human–facing lobby code used to join rooms.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct RoomCode(pub u64);
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode)]
+pub struct RoomCode(pub String);
 
 /// Unique identifier of a game instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
@@ -199,7 +238,29 @@ pub struct InputPayload {
 /// Full lobby / room state snapshot.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct RoomState {
-    pub player_ids: Vec<PlayerId>,
+    pub members: Vec<RoomMember>,
+    pub countdown_seconds_left: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct RoomMember {
+    pub session_id: SessionId,
+    pub nickname: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct RoomUpdate {
+    pub state: RoomState,
+    pub events: Vec<RoomEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub enum RoomEvent {
+    PlayerJoined { nickname: String },
+    PlayerLeft { nickname: String },
+    CountdownStarted { seconds: u32 },
+    CountdownTick { seconds_left: u32 },
+    CountdownFinished,
 }
 
 /// Result of a completed game.
