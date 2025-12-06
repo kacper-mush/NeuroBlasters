@@ -248,8 +248,6 @@ pub fn find_spawn_position(
     player_radius: f32,
     rng: &mut impl Rng,
 ) -> Option<Vec2> {
-    // --- Phase 1: Fast Random Guessing ---
-    // Try random spots first.
     let max_attempts = 50000;
     for _ in 0..max_attempts {
         let x = rng.random_range(player_radius..map.width - player_radius);
@@ -260,29 +258,7 @@ pub fn find_spawn_position(
             return Some(candidate);
         }
     }
-
-    // --- Phase 2: Deterministic Grid Scan ---
-    // If we are very unlucky which is possible if the map is almost full of "walls", scan systematically.
-    // We step by the half of player radius to ensure we don't miss any "player-sized" gaps.
-    // This should basically never happen on well design maps.
-    let step = player_radius / 2.0;
-
-    let mut y = player_radius;
-    while y <= map.height - player_radius {
-        let mut x = player_radius;
-        while x <= map.width - player_radius {
-            let candidate = Vec2::new(x, y);
-
-            if is_position_safe(candidate, player_radius, map) {
-                return Some(candidate);
-            }
-
-            x += step;
-        }
-        y += step;
-    }
-
-    None // there is no spawnable place on a map
+    None // there is no spawnable place on a map (or the map is bad-designed)
 }
 
 /// Checks if one team has been eliminated.
