@@ -110,10 +110,11 @@ pub(crate) struct Field {
     pub(crate) hover_color: Color,
     pub(crate) outline_color: Color,
     pub(crate) outline_thickness: f32,
+    draw_cache: Option<(f32, f32, f32, f32)>,
 }
 
 impl Field {
-    pub fn draw(&self, x: f32, y: f32, w: f32, h: f32) -> bool {
+    pub fn draw(&mut self, x: f32, y: f32, w: f32, h: f32) -> &mut Self {
         let is_hovered = self.is_hovered(x, y, w, h);
         let bg_color = if is_hovered {
             self.hover_color
@@ -124,11 +125,20 @@ impl Field {
 
         draw_rectangle_lines(x, y, w, h, self.outline_thickness, self.outline_color);
 
-        is_hovered && is_mouse_button_released(MouseButton::Left)
+        self.draw_cache = Some((x, y, w, h));
+
+        self
     }
 
-    pub fn draw_centered(&self, x: f32, y: f32, w: f32, h: f32) -> bool {
+    pub fn draw_centered(&mut self, x: f32, y: f32, w: f32, h: f32) -> &mut Self {
         self.draw(x - w / 2., y - h / 2., w, h)
+    }
+
+    pub fn poll(&self) -> bool {
+        if let Some((x, y, w, h)) = self.draw_cache {
+            return self.is_hovered(x, y, w, h) && is_mouse_button_released(MouseButton::Left);
+        }
+        false
     }
 
     fn is_hovered(&self, x: f32, y: f32, w: f32, h: f32) -> bool {
@@ -144,6 +154,7 @@ impl Default for Field {
             hover_color: DARKGRAY,
             outline_color: BLACK,
             outline_thickness: 2.,
+            draw_cache: None,
         }
     }
 }
@@ -164,8 +175,8 @@ impl Button {
         Self { field, text }
     }
 
-    pub fn draw(&self, x: f32, y: f32, w: f32, h: f32, text: Option<&str>) -> bool {
-        let clicked = self.field.draw(x, y, w, h);
+    pub fn draw(&mut self, x: f32, y: f32, w: f32, h: f32, text: Option<&str>) -> &mut Self {
+        self.field.draw(x, y, w, h);
 
         if let Some(text_str) = text {
             self.text
@@ -174,11 +185,22 @@ impl Button {
                 .draw(text_str, x + w / 2., y + h / 2.);
         }
 
-        clicked
+        self
     }
 
-    pub fn draw_centered(&self, x: f32, y: f32, w: f32, h: f32, text: Option<&str>) -> bool {
+    pub fn draw_centered(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        text: Option<&str>,
+    ) -> &mut Self {
         self.draw(x - w / 2., y - h / 2., w, h, text)
+    }
+
+    pub fn poll(&self) -> bool {
+        self.field.poll()
     }
 }
 
@@ -188,7 +210,6 @@ pub(crate) struct TextField {
     text_string: String,
     max_len: u32,
     focused: bool,
-    last_clicked: bool,
     since_last_remove: f32,
 }
 
@@ -204,13 +225,12 @@ impl TextField {
             text_string: String::new(),
             max_len,
             focused: false,
-            last_clicked: false,
             since_last_remove: 0.,
         }
     }
 
     pub fn draw(&mut self, x: f32, y: f32, w: f32, h: f32) {
-        self.last_clicked = self.field.draw(x, y, w, h);
+        self.field.draw(x, y, w, h);
         self.text.draw(&self.text_string, x, y + h / 2.);
     }
 
@@ -221,7 +241,7 @@ impl TextField {
     pub fn update(&mut self) {
         self.since_last_remove += get_frame_time();
 
-        if self.last_clicked {
+        if self.field.poll() {
             if !self.focused {
                 self.focused = true;
                 while get_char_pressed().is_some() {

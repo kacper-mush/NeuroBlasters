@@ -111,10 +111,12 @@ impl AppState for MainMenu {
         .draw("MAIN MENU", x_mid, 100.);
 
         self.play_pressed = ui::Button::new(Field::default(), Some(default_text_params.clone()))
-            .draw_centered(x_mid, 200., 200., 50., Some("Play game"));
+            .draw_centered(x_mid, 200., 200., 50., Some("Play game"))
+            .poll();
 
         self.quit_pressed = ui::Button::new(Field::default(), Some(default_text_params.clone()))
-            .draw_centered(x_mid, 270., 200., 50., Some("Quit"));
+            .draw_centered(x_mid, 270., 200., 50., Some("Quit"))
+            .poll();
 
         self.input_field.draw_centered(x_mid, 400., 250., 50.);
     }
@@ -204,10 +206,12 @@ impl AppState for InGameMenu {
         ui::Text::new_simple(40).draw("PAUSED", x_mid, 150.);
 
         self.resume_clicked = ui::Button::new(Field::default(), Some(default_text_params.clone()))
-            .draw_centered(x_mid, 250., 250., 50., Some("Resume"));
+            .draw_centered(x_mid, 250., 250., 50., Some("Resume"))
+            .poll();
 
         self.quit_clicked = ui::Button::new(Field::default(), Some(default_text_params.clone()))
-            .draw_centered(x_mid, 320., 250., 50., Some("Exit to Main Menu"));
+            .draw_centered(x_mid, 320., 250., 50., Some("Exit to Main Menu"))
+            .poll();
     }
 
     fn update(&mut self) -> StateAction {
