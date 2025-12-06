@@ -40,9 +40,13 @@ pub enum ServerMessage {
         room_code: RoomCode,
     },
     /// Successfully joined lobby.
-    RoomJoinOk { state: RoomState },
+    RoomJoinOk {
+        state: RoomState,
+    },
     /// Lobby update broadcast whenever player list / countdown change.
-    RoomUpdate { update: RoomUpdate },
+    RoomUpdate {
+        update: RoomUpdate,
+    },
     /// Room leave result; players can't leave the room once game started.
     RoomLeaveOk,
     /// Game instance begins.

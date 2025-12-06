@@ -159,14 +159,12 @@ impl ServerApp {
     }
 
     pub(super) fn detach_client_from_room(&mut self, client_id: ClientId) -> Option<RoomCode> {
-        let Some((room_code, nickname)) = self.sessions.get(&client_id).and_then(|session| {
+        let (room_code, nickname) = self.sessions.get(&client_id).and_then(|session| {
             session
                 .room_code
                 .clone()
                 .map(|code| (code, session.nickname.clone()))
-        }) else {
-            return None;
-        };
+        })?;
 
         if let Some(room) = self.rooms.get_mut(&room_code) {
             room.remove_member(client_id, nickname, Instant::now());
