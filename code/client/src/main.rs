@@ -1,8 +1,7 @@
-use macroquad::{miniquad::window::{set_window_position, set_window_size}, prelude::*};
+use macroquad::miniquad::window::{set_window_position, set_window_size};
 
-mod ui;
 mod app;
-
+mod ui;
 
 #[macroquad::main("Neuroblasters")]
 async fn main() {

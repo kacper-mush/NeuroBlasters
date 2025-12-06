@@ -1,6 +1,5 @@
-use macroquad::prelude::*;
 use crate::ui::{self, TextParamsExtended, extended_draw_text};
-
+use macroquad::prelude::*;
 
 trait AppState {
     fn update(&mut self) -> StateAction;
@@ -27,20 +26,13 @@ pub(crate) struct App {
 
 impl App {
     pub fn new() -> Self {
-        let mut stack: Vec<Box<dyn AppState>> = Vec::new();
-        stack.push(Box::new(MainMenu::new()));
-        App {stack}
+        App { stack: vec![Box::new(MainMenu::new())] }
     }
 
-
     pub async fn run(&mut self) {
-        loop {
+        while let Some(state) = self.stack.last_mut() {
             // We only run update for the State on top of the stack
-            let action = if let Some(state) = self.stack.last_mut() {
-                state.update()
-            } else {
-                break; // Stack empty
-            };
+            let action = state.update();
 
             clear_background(DARKBLUE);
 
@@ -61,16 +53,16 @@ impl App {
 
             match action {
                 StateAction::Push(new_state) => self.stack.push(new_state),
-                StateAction::Pop(n) => { 
-                    let to_keep = self.stack.len() -  n as usize;
-                    self.stack.truncate(to_keep); 
+                StateAction::Pop(n) => {
+                    let to_keep = self.stack.len() - n as usize;
+                    self.stack.truncate(to_keep);
 
                     // Tell the state that it came back into focus
                     if let Some(state) = self.stack.last_mut() {
                         state.on_resume();
                     }
-                },
-                StateAction::None => {},
+                }
+                StateAction::None => {}
             }
 
             next_frame().await;
@@ -148,7 +140,7 @@ impl AppState for MainMenu {
         );
         quit_button.draw();
         self.quit_pressed = quit_button.lm_clicked();
-        
+
         self.input_field.draw();
     }
 
@@ -170,7 +162,6 @@ impl AppState for MainMenu {
         *self = Self::new()
     }
 }
-
 
 struct Game;
 
@@ -225,8 +216,8 @@ impl AppState for InGameMenu {
             font_size: 30,
             ..Default::default()
         };
-        
-         // Menu grays the previous view
+
+        // Menu grays the previous view
         draw_rectangle(
             0.,
             0.,
@@ -264,15 +255,15 @@ impl AppState for InGameMenu {
 
     fn update(&mut self) -> StateAction {
         if self.resume_clicked {
-            return StateAction::Pop(1)
+            return StateAction::Pop(1);
         }
 
         if self.quit_clicked {
-            return StateAction::Pop(2)
+            return StateAction::Pop(2);
         }
 
         if is_key_pressed(KeyCode::Escape) {
-            return StateAction::Pop(1)
+            return StateAction::Pop(1);
         }
 
         StateAction::None
