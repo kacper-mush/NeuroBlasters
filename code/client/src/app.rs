@@ -1,4 +1,4 @@
-use crate::ui::{self, Field, Text, Button};
+use crate::ui::{self, Button, Field, Text, TextField};
 use macroquad::prelude::{state_machine::State, *};
 
 trait AppState {
@@ -9,7 +9,7 @@ trait AppState {
         false
     }
     /// The state can decide what it does when it gets resumed
-    fn on_resume(&mut self) { }
+    fn on_resume(&mut self) {}
 }
 
 enum StateAction {
@@ -86,7 +86,9 @@ struct MainMenu {
 
 impl MainMenu {
     fn new() -> Self {
-        Self { button_pressed: None }
+        Self {
+            button_pressed: None,
+        }
     }
 }
 
@@ -118,43 +120,59 @@ impl AppState for MainMenu {
 
         if button
             .draw_centered(x_mid, start_y, button_w, button_h, Some("Train Models"))
-            .poll() {
-                self.button_pressed = Some(MainMenuButtons::Training);
-            }
+            .poll()
+        {
+            self.button_pressed = Some(MainMenuButtons::Training);
+        }
 
         if button
-            .draw_centered(x_mid, start_y + sep, button_w, button_h, Some("Multiplayer"))
-            .poll() {
-                self.button_pressed = Some(MainMenuButtons::Multiplayer);
-            }
+            .draw_centered(
+                x_mid,
+                start_y + sep,
+                button_w,
+                button_h,
+                Some("Multiplayer"),
+            )
+            .poll()
+        {
+            self.button_pressed = Some(MainMenuButtons::Multiplayer);
+        }
 
         if button
-            .draw_centered(x_mid, start_y + 2. * sep, button_w, button_h, Some("Options"))
-            .poll() {
-                self.button_pressed = Some(MainMenuButtons::Options);
-            }
-
+            .draw_centered(
+                x_mid,
+                start_y + 2. * sep,
+                button_w,
+                button_h,
+                Some("Options"),
+            )
+            .poll()
+        {
+            self.button_pressed = Some(MainMenuButtons::Options);
+        }
 
         if button
             .draw_centered(x_mid, start_y + 3. * sep, button_w, button_h, Some("Quit"))
-            .poll() {
-                self.button_pressed = Some(MainMenuButtons::Quit);
-            }
+            .poll()
+        {
+            self.button_pressed = Some(MainMenuButtons::Quit);
+        }
     }
 
     fn update(&mut self) -> StateAction {
         match self.button_pressed {
             Some(button) => match button {
                 MainMenuButtons::Training => StateAction::Push(Box::new(TrainingMenu::new())),
-                MainMenuButtons::Multiplayer => StateAction::Push(Box::new(ServerConnectMenu::new())),
+                MainMenuButtons::Multiplayer => {
+                    StateAction::Push(Box::new(ServerConnectMenu::new()))
+                }
                 MainMenuButtons::Options => StateAction::Push(Box::new(OptionsMenu::new())),
                 MainMenuButtons::Quit => StateAction::Pop(1),
-            }
-            None => StateAction::None
+            },
+            None => StateAction::None,
         }
     }
 }
-
 
 struct TrainingMenu {
     back_clicked: bool,
@@ -162,7 +180,9 @@ struct TrainingMenu {
 
 impl TrainingMenu {
     fn new() -> Self {
-        TrainingMenu { back_clicked: false }
+        TrainingMenu {
+            back_clicked: false,
+        }
     }
 }
 
@@ -191,7 +211,9 @@ struct OptionsMenu {
 
 impl OptionsMenu {
     fn new() -> Self {
-        OptionsMenu { back_clicked: false }
+        OptionsMenu {
+            back_clicked: false,
+        }
     }
 }
 
@@ -214,32 +236,66 @@ impl AppState for OptionsMenu {
     }
 }
 
+#[derive(Copy, Clone)]
+enum ServerConnectButtons {
+    Connect,
+    Back,
+}
 
 struct ServerConnectMenu {
-    back_clicked: bool,
+    button_pressed: Option<ServerConnectButtons>,
+    servername_field: TextField,
 }
 
 impl ServerConnectMenu {
     fn new() -> Self {
-        ServerConnectMenu { back_clicked: false }
+        ServerConnectMenu {
+            button_pressed: None,
+            servername_field: TextField::new(Field::default(), TextParams::default(), 30),
+        }
     }
 }
 
 impl AppState for ServerConnectMenu {
     fn draw(&mut self) {
         let x_mid = screen_width() / 2.;
+        let mut button = Button::new(Field::default(), Some(TextParams::default()));
+        let w = 300.;
+        let h = 50.;
+        let y_start = 270.;
+        let sep = 80.;
 
-        Text::new_simple(30).draw("Connection...", x_mid, 200.);
-        self.back_clicked = Button::new(Field::default(), Some(TextParams::default()))
-            .draw_centered(x_mid, 250., 250., 50., Some("Back"))
-            .poll();
+        Text::new_simple(30).draw("Connect to server", x_mid, 200.);
+        Text::new_simple(20).draw("Enter server name:", x_mid, 230.);
+
+        self.servername_field.draw_centered(x_mid, y_start, w, h);
+
+        self.button_pressed = None;
+
+        if button
+            .draw_centered(x_mid, y_start + sep, w, h, Some("Connect"))
+            .poll()
+        {
+            self.button_pressed = Some(ServerConnectButtons::Connect);
+        }
+
+        if button
+            .draw_centered(x_mid, y_start + 2. * sep, w, h, Some("Back"))
+            .poll()
+        {
+            self.button_pressed = Some(ServerConnectButtons::Back);
+        }
     }
 
     fn update(&mut self) -> StateAction {
-        if self.back_clicked {
-            StateAction::Pop(1)
-        } else {
-            StateAction::None
+        self.servername_field.update();
+
+        match self.button_pressed {
+            Some(button) => match button {
+                ServerConnectButtons::Connect => StateAction::None,
+                ServerConnectButtons::Back => StateAction::Pop(1),
+            },
+            None => StateAction::None,
         }
     }
 }
