@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use common::{GameStateSnapshot, GameUpdate, MapDefinition, RectWall, TickId};
+use common::protocol::{GameStateSnapshot, GameUpdate, MapDefinition, RectWall, TickId};
 use glam::Vec2;
 
 pub struct GameStartContext {

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use common::RoomEvent;
+use common::protocol::RoomEvent;
 
 #[derive(Default)]
 pub struct CountdownAdvance {

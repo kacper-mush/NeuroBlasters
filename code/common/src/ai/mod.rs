@@ -1,6 +1,8 @@
-use crate::game_logic::PROJECTILE_SPEED;
-use crate::pathfinding::find_path_a_star;
-use crate::protocol::{GameStateSnapshot, InputPayload, MapDefinition, PlayerState};
+pub mod pathfinding;
+
+use self::pathfinding::find_path_a_star;
+use crate::game::PROJECTILE_SPEED;
+use crate::net::protocol::{GameStateSnapshot, InputPayload, MapDefinition, PlayerState};
 use glam::Vec2;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -269,7 +271,7 @@ impl ScriptedPolicy {
 
                 // Check if the point is safe (not inside a wall)
                 // and if we can walk straight to it (line of sight)
-                if crate::game_logic::is_position_safe(candidate, ctx.me.radius, ctx.map)
+                if crate::game::is_position_safe(candidate, ctx.me.radius, ctx.map)
                     && has_line_of_sight(ctx, ctx.me.position, candidate)
                 {
                     self.target_pos = Some(candidate);

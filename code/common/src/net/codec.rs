@@ -1,7 +1,7 @@
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{decode_from_slice, encode_to_vec};
 
-use crate::protocol::{ClientMessage, ServerMessage};
+use super::protocol::{ClientMessage, ServerMessage};
 
 /// Shared binary configuration used by both server and client.
 fn bincode_config() -> impl bincode::config::Config {

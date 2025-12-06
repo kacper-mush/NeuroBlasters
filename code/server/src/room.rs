@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use common::{
+use common::protocol::{
     CountdownError, RoomCode, RoomCreateError, RoomEvent, RoomJoinError, RoomLeaveError,
     RoomMember, RoomState, RoomUpdate, ServerMessage,
 };

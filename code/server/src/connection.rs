@@ -1,4 +1,4 @@
-use common::{API_VERSION, ApiVersion, ConnectError, RoomCode, ServerMessage, SessionId};
+use common::protocol::{API_VERSION, ApiVersion, ConnectError, RoomCode, ServerMessage, SessionId};
 use rand::RngCore;
 use renet::ClientId;
 

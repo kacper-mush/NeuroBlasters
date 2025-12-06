@@ -1,5 +1,9 @@
-use crate::protocol::Team;
-use crate::protocol::{InputPayload, KillEvent, MapDefinition, PlayerState, Projectile, RectWall};
+pub mod engine;
+
+use crate::net::protocol::Team;
+use crate::net::protocol::{
+    InputPayload, KillEvent, MapDefinition, PlayerState, Projectile, RectWall,
+};
 use glam::Vec2;
 use rand::Rng;
 
