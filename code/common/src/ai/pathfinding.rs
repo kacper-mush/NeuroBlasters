@@ -1,4 +1,4 @@
-use crate::protocol::MapDefinition;
+use crate::net::protocol::MapDefinition;
 use glam::Vec2;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
