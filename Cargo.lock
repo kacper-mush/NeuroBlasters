@@ -130,7 +130,6 @@ version = "0.1.0"
 dependencies = [
  "common",
  "macroquad",
- "rand",
 ]
 
 [[package]]

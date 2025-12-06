@@ -3,7 +3,7 @@ use crate::protocol::{InputPayload, KillEvent, MapDefinition, PlayerState, Proje
 use glam::Vec2;
 use rand::Rng;
 
-const PROJECTILE_SPEED: f32 = 500.0;
+pub const PROJECTILE_SPEED: f32 = 500.0;
 const PROJECTILE_RADIUS: f32 = 5.0;
 const FIRE_RATE: f32 = 0.2; // Seconds between shots
 const PROJECTILE_DAMAGE: f32 = 10.0;
@@ -71,7 +71,7 @@ fn constrain_to_map(position: &mut Vec2, radius: f32, map: &MapDefinition) {
 }
 
 /// Returns true if the not inside any wall.
-fn is_position_safe(pos: Vec2, radius: f32, map: &MapDefinition) -> bool {
+pub fn is_position_safe(pos: Vec2, radius: f32, map: &MapDefinition) -> bool {
     // 1. Check Map Boundaries
     if pos.x < radius || pos.x > map.width - radius || pos.y < radius || pos.y > map.height - radius
     {
