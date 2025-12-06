@@ -26,7 +26,9 @@ pub(crate) struct App {
 
 impl App {
     pub fn new() -> Self {
-        App { stack: vec![Box::new(MainMenu::new())] }
+        App {
+            stack: vec![Box::new(MainMenu::new())],
+        }
     }
 
     pub async fn run(&mut self) {
