@@ -1,6 +1,6 @@
 use crate::app::{AppState, StateAction};
 use crate::server::Server;
-use crate::ui::{self, Button, Field, Text, TextField};
+use crate::ui::{self, Field};
 use macroquad::prelude::*;
 
 pub(crate) struct Game {

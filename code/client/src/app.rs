@@ -1,6 +1,6 @@
 use crate::game::Game;
 use crate::server::Server;
-use crate::ui::{self, Button, Field, Text, TextField};
+use crate::ui::{Button, Field, Text, TextField};
 use macroquad::prelude::*;
 
 pub(crate) trait AppState {
@@ -490,12 +490,12 @@ impl AppState for RoomView {
     fn update(&mut self) -> StateAction {
         self.room_code = match self.server.get_room_code() {
             Ok(code) => code,
-            Err(e) => return StateAction::Pop(1),
+            Err(_) => return StateAction::Pop(1),
         };
 
         self.player_names = match self.server.get_player_list() {
             Ok(player_list) => player_list,
-            Err(e) => return StateAction::Pop(1),
+            Err(_) => return StateAction::Pop(1),
         };
 
         match self.button_pressed {
