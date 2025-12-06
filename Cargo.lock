@@ -130,7 +130,6 @@ version = "0.1.0"
 dependencies = [
  "common",
  "macroquad",
- "rand",
 ]
 
 [[package]]
@@ -632,6 +631,7 @@ name = "server"
 version = "0.1.0"
 dependencies = [
  "common",
+ "glam",
  "rand",
  "renet",
  "renet_netcode",
