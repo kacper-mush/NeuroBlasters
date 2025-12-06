@@ -51,4 +51,3 @@ fn placeholder_game_state() -> GameStateSnapshot {
         time_remaining: 0.0,
     }
 }
-

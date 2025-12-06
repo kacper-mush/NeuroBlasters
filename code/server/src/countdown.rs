@@ -47,4 +47,3 @@ impl CountdownTimer {
         self.remaining_seconds.ceil() as u32
     }
 }
-

@@ -11,9 +11,9 @@ use rand::RngCore;
 use renet::ClientId;
 
 use crate::{
+    ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_IDLE_TIMEOUT, ServerApp, SessionInfo,
     countdown::{CountdownAdvance, CountdownTimer},
     game::{GameInstance, GameStartContext, placeholder_game_update, placeholder_map},
-    ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_IDLE_TIMEOUT, ServerApp, SessionInfo,
 };
 
 #[derive(Default)]
@@ -117,8 +117,7 @@ impl Room {
 
     pub fn cancel_countdown(&mut self) -> bool {
         if self.countdown.take().is_some() {
-            self.pending_events
-                .push(RoomEvent::CountdownCancelled);
+            self.pending_events.push(RoomEvent::CountdownCancelled);
             true
         } else {
             false
@@ -146,7 +145,8 @@ impl ServerApp {
             self.broadcast_room_update(&code);
         }
 
-        self.rooms.retain(|_, room| !room.should_remove(now, ROOM_IDLE_TIMEOUT));
+        self.rooms
+            .retain(|_, room| !room.should_remove(now, ROOM_IDLE_TIMEOUT));
 
         for code in rooms_to_start {
             self.bootstrap_room_game(&code, now);
@@ -209,12 +209,7 @@ impl ServerApp {
 
         for client_id in member_ids {
             self.send_message(client_id, ServerMessage::GameStart);
-            self.send_message(
-                client_id,
-                ServerMessage::GameMap {
-                    map: map.clone(),
-                },
-            );
+            self.send_message(client_id, ServerMessage::GameMap { map: map.clone() });
             self.send_message(
                 client_id,
                 ServerMessage::GameUpdate {
