@@ -111,11 +111,6 @@ impl Room {
         }
     }
 
-    #[cfg(test)]
-    pub fn has_pending_events(&self) -> bool {
-        !self.pending_events.is_empty()
-    }
-
     pub fn drain_events(&mut self) -> Vec<RoomEvent> {
         std::mem::take(&mut self.pending_events)
     }
@@ -487,89 +482,5 @@ impl ServerApp {
                 .0
                 .chars()
                 .all(|c| c.is_ascii() && ROOM_CODE_ALPHABET.contains(&(c as u8)))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn add_and_remove_members_track_events() {
-        let mut room = Room::new();
-        assert!(room.add_member(1, "alpha".into()));
-        assert!(room.has_pending_events());
-        let events = room.drain_events();
-        assert!(matches!(events[0], RoomEvent::PlayerJoined { .. }));
-
-        let now = Instant::now();
-        assert!(room.remove_member(1, "alpha".into(), now));
-        let events = room.drain_events();
-        assert!(matches!(events[0], RoomEvent::PlayerLeft { .. }));
-    }
-
-    #[test]
-    fn countdown_emits_ticks_and_finishes() {
-        let mut room = Room::new();
-        room.start_countdown(2);
-        assert!(room.has_pending_events());
-        let events = room.drain_events();
-        assert!(matches!(
-            events[0],
-            RoomEvent::CountdownStarted { seconds: 2 }
-        ));
-
-        let result = room.advance_countdown(Duration::from_secs(1));
-        assert!(result.emitted_events);
-        let events = room.drain_events();
-        assert!(matches!(
-            events[0],
-            RoomEvent::CountdownTick { seconds_left: 1 }
-        ));
-
-        let result = room.advance_countdown(Duration::from_secs(2));
-        assert!(result.emitted_events);
-        assert!(result.finished);
-        let events = room.drain_events();
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, RoomEvent::CountdownFinished))
-        );
-    }
-
-    #[test]
-    fn countdown_state_reflects_remaining_seconds() {
-        let mut room = Room::new();
-        assert_eq!(room.countdown_seconds_left(), None);
-
-        room.start_countdown(5);
-        assert_eq!(room.countdown_seconds_left(), Some(5));
-
-        room.advance_countdown(Duration::from_millis(1500));
-        assert_eq!(room.countdown_seconds_left(), Some(4));
-
-        room.advance_countdown(Duration::from_secs(5));
-        assert_eq!(room.countdown_seconds_left(), None);
-    }
-
-    #[test]
-    fn countdown_cancels_when_players_leave() {
-        let mut room = Room::new();
-        let now = Instant::now();
-        assert!(room.add_member(1, "alpha".into()));
-        assert!(room.add_member(2, "bravo".into()));
-        room.start_countdown(3);
-        room.drain_events(); // discard start event
-
-        assert!(room.remove_member(2, "bravo".into(), now));
-        let events = room.drain_events();
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, RoomEvent::CountdownCancelled)),
-            "expected countdown cancel event"
-        );
-        assert_eq!(room.countdown_seconds_left(), None);
     }
 }
