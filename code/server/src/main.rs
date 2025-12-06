@@ -5,10 +5,8 @@ mod room;
 
 use std::{collections::HashMap, net::SocketAddr, net::UdpSocket, time::Duration, time::Instant};
 
-use common::{
-    ClientMessage, ConnectError, RoomCode, ServerError, ServerMessage, decode_client_message,
-    encode_server_message,
-};
+use common::codec::{decode_client_message, encode_server_message};
+use common::protocol::{ClientMessage, ConnectError, RoomCode, ServerError, ServerMessage};
 use connection::SessionInfo;
 use rand::{SeedableRng, rngs::StdRng};
 use renet::{ClientId, ConnectionConfig, RenetServer, ServerEvent};
