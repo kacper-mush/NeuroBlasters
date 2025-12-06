@@ -311,11 +311,13 @@ impl ScriptedPolicy {
     }
 
     fn hunter_logic(&mut self, ctx: &mut BotContext) -> InputPayload {
+        let mut move_axis = Vec2::ZERO;
+        let mut aim_pos = ctx.me.position;
+        let mut shoot = false;
+
         if let Some(enemy) = find_closest_enemy(ctx) {
-            let mut move_axis = Vec2::ZERO;
-            let mut shoot = false;
             let enemy_pos = enemy.position;
-            let aim_pos = enemy_pos; // Always look at enemy
+            aim_pos = enemy_pos; // Always look at enemy
 
             // Pathfinding Logic
             self.path_recalc_timer -= ctx.dt;
@@ -346,22 +348,23 @@ impl ScriptedPolicy {
             if has_line_of_sight(ctx, ctx.me.position, enemy_pos) {
                 shoot = true;
             }
-
-            InputPayload {
-                move_axis,
-                aim_pos,
-                shoot,
-            }
         } else {
-            self.wanderer_logic(ctx)
+            return self.wanderer_logic(ctx);
+        }
+
+        InputPayload {
+            move_axis,
+            aim_pos,
+            shoot,
         }
     }
 
     fn terminator_logic(&mut self, ctx: &mut BotContext) -> InputPayload {
-        if let Some(enemy) = find_closest_enemy(ctx) {
-            let mut move_axis = Vec2::ZERO;
-            let mut shoot = false;
+        let mut move_axis = Vec2::ZERO;
+        let mut aim_pos = ctx.me.position;
+        let mut shoot = false;
 
+        if let Some(enemy) = find_closest_enemy(ctx) {
             // Movement
             self.path_recalc_timer -= ctx.dt;
             if self.path_recalc_timer <= 0.0 {
@@ -384,20 +387,20 @@ impl ScriptedPolicy {
             }
 
             // Predictive Aiming (The "Terminator" part)
-            let aim_pos = predict_aim_position(ctx.me.position, enemy.position, enemy.velocity);
+            aim_pos = predict_aim_position(ctx.me.position, enemy.position, enemy.velocity);
 
             // Fire
             if has_line_of_sight(ctx, ctx.me.position, aim_pos) {
                 shoot = true;
             }
-
-            InputPayload {
-                move_axis,
-                aim_pos,
-                shoot,
-            }
         } else {
-            self.wanderer_logic(ctx)
+            return self.wanderer_logic(ctx);
+        }
+
+        InputPayload {
+            move_axis,
+            aim_pos,
+            shoot,
         }
     }
 }
