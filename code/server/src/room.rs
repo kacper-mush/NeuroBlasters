@@ -89,17 +89,11 @@ impl Room {
         self.countdown.as_ref().map(|timer| timer.seconds_left())
     }
 
-    pub fn should_remove(&mut self, now: Instant, timeout: Duration) -> bool {
+    pub fn should_remove(&self, now: Instant, timeout: Duration) -> bool {
         if self.members.is_empty() {
-            match self.empty_since {
-                Some(since) => now.duration_since(since) >= timeout,
-                None => {
-                    self.empty_since = Some(now);
-                    false
-                }
-            }
+            self.empty_since
+                .is_some_and(|since| now.duration_since(since) >= timeout)
         } else {
-            self.empty_since = None;
             false
         }
     }
@@ -349,7 +343,7 @@ impl CountdownTimer {
 
     fn advance(&mut self, delta: Duration) -> (Vec<RoomEvent>, bool) {
         if self.remaining_seconds <= 0.0 {
-            return (Vec::new(), true);
+            panic!("Advancing countdown timer past zero");
         }
 
         let mut events = Vec::new();
