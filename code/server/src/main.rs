@@ -204,6 +204,9 @@ impl ServerApp {
             ClientMessage::RoomStartCountdown { seconds } => {
                 self.handle_room_start_countdown(&session, seconds)?
             }
+            ClientMessage::Input { tick_id, payload } => {
+                self.handle_input_message(client_id, tick_id, payload)?
+            }
             _ => {
                 debug!(client_id = %client_id, ?message, "message type unimplemented");
                 return Err(ServerError::General);

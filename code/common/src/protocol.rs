@@ -228,6 +228,16 @@ pub struct InputPayload {
     pub shoot: bool,
 }
 
+impl Default for InputPayload {
+    fn default() -> Self {
+        Self {
+            move_axis: Vec2::ZERO,
+            aim_pos: Vec2::ZERO,
+            shoot: false,
+        }
+    }
+}
+
 /// Full lobby / room state snapshot.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct RoomState {
@@ -294,6 +304,7 @@ pub struct GameUpdate {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum GameEvent {
     Placeholder,
+    Kill(KillEvent),
 }
 
 // Tells who killed whom.
