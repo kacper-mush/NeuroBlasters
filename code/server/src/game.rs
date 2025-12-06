@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use common::game_logic::{
     apply_player_physics, find_spawn_position, handle_shooting, resolve_combat, update_projectiles,
@@ -36,7 +36,6 @@ pub struct GameInstance {
 
 impl GameInstance {
     pub fn start(
-        _started_at: Instant,
         members: Vec<(ClientId, SessionInfo)>,
         rng: &mut StdRng,
     ) -> Option<(Self, GameStartContext)> {

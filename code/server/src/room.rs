@@ -175,7 +175,7 @@ impl ServerApp {
             .retain(|_, room| !room.should_remove(now, ROOM_IDLE_TIMEOUT));
 
         for code in rooms_to_start {
-            self.bootstrap_room_game(&code, now);
+            self.bootstrap_room_game(&code);
         }
     }
 
@@ -229,7 +229,7 @@ impl ServerApp {
         }
     }
 
-    fn bootstrap_room_game(&mut self, room_code: &RoomCode, started_at: Instant) {
+    fn bootstrap_room_game(&mut self, room_code: &RoomCode) {
         let (can_start, member_ids) = match self.rooms.get(room_code) {
             Some(room) => (room.can_start_game(), room.member_ids()),
             None => return,
@@ -263,9 +263,7 @@ impl ServerApp {
             return;
         }
 
-        let Some((instance, context)) =
-            GameInstance::start(started_at, member_sessions, &mut self.rng)
-        else {
+        let Some((instance, context)) = GameInstance::start(member_sessions, &mut self.rng) else {
             return;
         };
 

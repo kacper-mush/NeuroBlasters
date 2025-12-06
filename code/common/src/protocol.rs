@@ -303,7 +303,6 @@ pub struct GameUpdate {
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum GameEvent {
-    Placeholder,
     Kill(KillEvent),
 }
 
