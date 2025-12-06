@@ -1,19 +1,18 @@
 mod connection;
 mod countdown;
 mod game;
-mod room;
 
 use std::{collections::HashMap, net::SocketAddr, net::UdpSocket, time::Duration, time::Instant};
 
 use common::{
-    ClientMessage, ConnectError, RoomCode, ServerError, ServerMessage, decode_client_message,
+    ClientMessage, ConnectError, GameCode, ServerError, ServerMessage, decode_client_message,
     encode_server_message,
 };
 use connection::SessionInfo;
+use game::Game;
 use rand::{SeedableRng, rngs::StdRng};
 use renet::{ClientId, ConnectionConfig, RenetServer, ServerEvent};
 use renet_netcode::{NetcodeServerTransport, ServerAuthentication, ServerConfig};
-use room::Room;
 use tokio::time::{self, MissedTickBehavior};
 use tracing::{debug, error, info, trace};
 use tracing_subscriber::EnvFilter;
@@ -23,9 +22,9 @@ const MAX_CLIENTS: usize = 64;
 const PROTOCOL_ID: u64 = 0;
 const RELIABLE_CHANNEL_ID: u8 = 0;
 const TICK_INTERVAL: Duration = Duration::from_micros(33_333); // ≈30 Hz
-const ROOM_CODE_LENGTH: usize = 6;
-const ROOM_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-const ROOM_CODE_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const GAME_CODE_LENGTH: usize = 6;
+const GAME_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const GAME_CODE_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 type AppResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -74,7 +73,7 @@ struct ServerApp {
     transport: NetcodeServerTransport,
     /// Only authenticated (handshaken) clients are stored here.
     sessions: HashMap<ClientId, SessionInfo>,
-    rooms: HashMap<RoomCode, Room>,
+    games: HashMap<GameCode, Game>,
     rng: StdRng,
     last_tick: Instant,
 }
@@ -100,7 +99,7 @@ impl ServerApp {
             server,
             transport,
             sessions: HashMap::new(),
-            rooms: HashMap::new(),
+            games: HashMap::new(),
             rng: StdRng::from_os_rng(),
             last_tick: Instant::now(),
         })
@@ -121,8 +120,8 @@ impl ServerApp {
         self.server.update(delta);
         self.process_events();
         self.process_messages();
-        // Update room countdowns, members and broadcast updates.
-        self.update_rooms(delta);
+        // Update games and broadcast updates.
+        self.update_games(delta);
         // Send the queued packets to the clients.
         self.transport.send_packets(&mut self.server);
 
@@ -144,8 +143,8 @@ impl ServerApp {
                 }
                 ServerEvent::ClientDisconnected { client_id, reason } => {
                     info!(client_id = %client_id, ?reason, "client disconnected");
-                    if let Some(room_code) = self.detach_client_from_room(client_id) {
-                        self.broadcast_room_update(&room_code);
+                    if let Some(game_code) = self.detach_client_from_game(client_id) {
+                        self.broadcast_game_update(&game_code);
                     }
                     self.sessions.remove(&client_id);
                 }
@@ -177,39 +176,34 @@ impl ServerApp {
         client_id: ClientId,
         message: ClientMessage,
     ) -> Result<(), ServerError> {
-        if let ClientMessage::Connect {
-            api_version,
-            nickname,
-        } = message
-        {
-            return self
-                .handle_connect_message(client_id, api_version, nickname)
-                .map_err(Into::into);
-        }
-
-        let session = self
-            .sessions
-            .get(&client_id)
-            .cloned()
-            .ok_or(ConnectError::HandshakeRequired)?;
-
-        trace!(client_id = %client_id, ?message, "received client message");
         match message {
-            ClientMessage::Disconnect => self.handle_disconnect_request(client_id)?,
-            ClientMessage::RoomCreate => self.handle_room_create(client_id, &session)?,
-            ClientMessage::RoomJoin { room_code } => {
-                self.handle_room_join(client_id, &session, room_code)?
-            }
-            ClientMessage::RoomLeave => self.handle_room_leave(client_id)?,
-            ClientMessage::RoomStartCountdown { seconds } => {
-                self.handle_room_start_countdown(&session, seconds)?
-            }
-            ClientMessage::Input { tick_id, payload } => {
-                self.handle_input_message(client_id, &session, tick_id, payload)?
-            }
-            _ => {
-                debug!(client_id = %client_id, ?message, "message type unimplemented");
-                return Err(ServerError::General);
+            ClientMessage::Connect {
+                api_version,
+                nickname,
+            } => self.handle_connect_message(client_id, api_version, nickname)?,
+            other => {
+                let session = self
+                    .sessions
+                    .get(&client_id)
+                    .cloned()
+                    .ok_or(ConnectError::HandshakeRequired)?;
+
+                trace!(client_id = %client_id, ?other, "received client message");
+                match other {
+                    ClientMessage::Disconnect => self.handle_disconnect_request(client_id)?,
+                    ClientMessage::GameCreate => self.handle_game_create(client_id, &session)?,
+                    ClientMessage::GameJoin { game_code } => {
+                        self.handle_game_join(client_id, &session, game_code)?
+                    }
+                    ClientMessage::GameLeave => self.handle_game_leave(client_id)?,
+                    ClientMessage::GameStartCountdown { seconds } => {
+                        self.handle_game_start_countdown(&session, seconds)?
+                    }
+                    ClientMessage::Input { tick_id, payload } => {
+                        self.handle_input_message(client_id, &session, tick_id, payload)?
+                    }
+                    ClientMessage::Connect { .. } => unreachable!(),
+                }
             }
         }
         Ok(())

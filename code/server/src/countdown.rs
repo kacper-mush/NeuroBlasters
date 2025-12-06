@@ -1,12 +1,6 @@
 use std::time::Duration;
 
-use common::RoomEvent;
-
-#[derive(Default)]
-pub struct CountdownAdvance {
-    pub emitted_events: bool,
-    pub finished: bool,
-}
+use common::GameEvent;
 
 pub struct CountdownTimer {
     remaining_seconds: f32,
@@ -19,7 +13,7 @@ impl CountdownTimer {
         }
     }
 
-    pub fn advance(&mut self, delta: Duration) -> (Vec<RoomEvent>, bool) {
+    pub fn advance(&mut self, delta: Duration) -> (Vec<GameEvent>, bool) {
         if self.remaining_seconds <= 0.0 {
             panic!("Advancing countdown timer past zero");
         }
@@ -30,13 +24,13 @@ impl CountdownTimer {
         let current_whole = self.seconds_left();
 
         if current_whole < previous_whole {
-            events.push(RoomEvent::CountdownTick {
+            events.push(GameEvent::CountdownTick {
                 seconds_left: current_whole,
             });
         }
 
         if self.remaining_seconds <= 0.0 {
-            events.push(RoomEvent::CountdownFinished);
+            events.push(GameEvent::CountdownFinished);
             return (events, true);
         }
 

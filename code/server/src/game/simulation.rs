@@ -2,18 +2,17 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use common::game_logic::{
-    apply_player_physics, find_spawn_position, handle_shooting, resolve_combat, update_projectiles,
+    apply_player_physics, check_round_winner, find_spawn_position, handle_shooting, resolve_combat,
+    update_projectiles,
 };
 use common::{
-    GameEvent, GameStateSnapshot, GameUpdate, InputPayload, MapDefinition, PlayerId, PlayerState,
-    RectWall, Team, TickId,
+    GameEvent, GameStateSnapshot, InputPayload, MapDefinition, PlayerId, PlayerState, RectWall,
+    Team,
 };
 use glam::Vec2;
 use rand::rngs::StdRng;
 use renet::ClientId;
 use thiserror::Error;
-
-use crate::connection::SessionInfo;
 
 const DEFAULT_TIME_LIMIT: f32 = 180.0;
 const PLAYER_RADIUS: f32 = 16.0;
@@ -28,14 +27,13 @@ pub enum GameStartError {
     SpawnPositionUnavailable { player_index: usize },
 }
 
-pub struct GameStartContext {
-    pub initial_tick_id: TickId,
-    pub map: MapDefinition,
-    pub initial_update: GameUpdate,
+pub struct GameFrame {
+    pub state: GameStateSnapshot,
+    pub events: Vec<GameEvent>,
+    pub winner: Option<Team>,
 }
 
 pub struct GameInstance {
-    next_tick_id: TickId,
     map: MapDefinition,
     state: GameStateSnapshot,
     inputs: HashMap<PlayerId, InputPayload>,
@@ -44,11 +42,8 @@ pub struct GameInstance {
 }
 
 impl GameInstance {
-    pub fn start(
-        members: Vec<(ClientId, SessionInfo)>,
-        rng: &mut StdRng,
-    ) -> Result<(Self, GameStartContext), GameStartError> {
-        if members.is_empty() {
+    pub fn start(members: &[ClientId], rng: &mut StdRng) -> Result<Self, GameStartError> {
+        if members.len() < 2 {
             return Err(GameStartError::NoPlayers);
         }
 
@@ -57,10 +52,13 @@ impl GameInstance {
         let mut client_players = HashMap::new();
         let mut inputs = HashMap::new();
 
-        for (index, (client_id, session)) in members.into_iter().enumerate() {
-            let player_id = PlayerId(session.session_id.0);
-            let spawn = find_spawn_position(&map, PLAYER_RADIUS, rng)
-                .ok_or(GameStartError::SpawnPositionUnavailable { player_index: index })?;
+        for (index, client_id) in members.iter().enumerate() {
+            let player_id = PlayerId(*client_id);
+            let spawn = find_spawn_position(&map, PLAYER_RADIUS, rng).ok_or(
+                GameStartError::SpawnPositionUnavailable {
+                    player_index: index,
+                },
+            )?;
             let team = if index % 2 == 0 {
                 Team::Blue
             } else {
@@ -78,7 +76,7 @@ impl GameInstance {
                 weapon_cooldown: 0.0,
             };
             players.push(player);
-            client_players.insert(client_id, player_id);
+            client_players.insert(*client_id, player_id);
             inputs.insert(player_id, InputPayload::default());
         }
 
@@ -88,14 +86,7 @@ impl GameInstance {
             time_remaining: DEFAULT_TIME_LIMIT,
         };
 
-        let initial_tick_id = TickId(0);
-        let initial_update = GameUpdate {
-            state: state.clone(),
-            events: Vec::new(),
-        };
-
         let instance = Self {
-            next_tick_id: TickId(initial_tick_id.0 + 1),
             map: map.clone(),
             state,
             inputs,
@@ -103,13 +94,7 @@ impl GameInstance {
             next_projectile_id: 1,
         };
 
-        let context = GameStartContext {
-            initial_tick_id,
-            map,
-            initial_update,
-        };
-
-        Ok((instance, context))
+        Ok(instance)
     }
 
     pub fn submit_input(&mut self, client_id: ClientId, payload: InputPayload) {
@@ -118,11 +103,7 @@ impl GameInstance {
         }
     }
 
-    pub fn advance(&mut self, delta: Duration) -> Option<(TickId, GameUpdate)> {
-        if self.state.players.is_empty() {
-            return None;
-        }
-
+    pub fn advance(&mut self, delta: Duration) -> GameFrame {
         let dt = delta.as_secs_f32();
 
         for player in &mut self.state.players {
@@ -140,18 +121,15 @@ impl GameInstance {
 
         self.state.time_remaining = (self.state.time_remaining - dt).max(0.0);
 
-        let tick_id = self.next_tick_id;
-        self.next_tick_id.0 += 1;
-
-        let update = GameUpdate {
+        let winner = check_round_winner(&self.state.players);
+        GameFrame {
             state: self.state.clone(),
             events,
-        };
-
-        Some((tick_id, update))
+            winner,
+        }
     }
 
-    pub fn remove_client(&mut self, client_id: ClientId) -> bool {
+    pub fn remove_client(&mut self, client_id: ClientId) {
         if let Some(player_id) = self.client_players.remove(&client_id) {
             self.inputs.remove(&player_id);
             self.state.players.retain(|player| player.id != player_id);
@@ -159,6 +137,17 @@ impl GameInstance {
                 .projectiles
                 .retain(|projectile| projectile.owner_id != player_id);
         }
+    }
+
+    pub fn get_map(&self) -> &MapDefinition {
+        &self.map
+    }
+
+    pub fn get_state(&self) -> &GameStateSnapshot {
+        &self.state
+    }
+
+    pub fn is_empty(&self) -> bool {
         self.client_players.is_empty()
     }
 }
