@@ -85,6 +85,10 @@ impl Room {
         self.members.iter().copied().collect()
     }
 
+    pub fn countdown_seconds_left(&self) -> Option<u32> {
+        self.countdown.as_ref().map(|timer| timer.seconds_left())
+    }
+
     pub fn should_remove(&mut self, now: Instant, timeout: Duration) -> bool {
         if self.members.is_empty() {
             match self.empty_since {
@@ -136,12 +140,13 @@ impl ServerApp {
         }
 
         let member_ids = room.member_ids();
+        let countdown_seconds_left = room.countdown_seconds_left();
         let events = room.drain_events();
         if member_ids.is_empty() || events.is_empty() {
             return;
         }
 
-        let state = self.build_room_state(&member_ids);
+        let state = self.build_room_state(&member_ids, countdown_seconds_left);
         let update = RoomUpdate { state, events };
         for client_id in member_ids {
             self.send_message(
@@ -279,7 +284,11 @@ impl ServerApp {
         Ok(())
     }
 
-    fn build_room_state(&self, members: &[ClientId]) -> RoomState {
+    fn build_room_state(
+        &self,
+        members: &[ClientId],
+        countdown_seconds_left: Option<u32>,
+    ) -> RoomState {
         let mut list: Vec<RoomMember> = members
             .iter()
             .filter_map(|client_id| self.sessions.get(client_id))
@@ -289,15 +298,19 @@ impl ServerApp {
             })
             .collect();
         list.sort_by(|a, b| a.nickname.cmp(&b.nickname));
-        RoomState { members: list }
+        RoomState {
+            members: list,
+            countdown_seconds_left,
+        }
     }
 
     fn build_room_state_for_code(&self, room_code: &RoomCode) -> RoomState {
         self.rooms
             .get(room_code)
-            .map(|room| self.build_room_state(&room.member_ids()))
+            .map(|room| self.build_room_state(&room.member_ids(), room.countdown_seconds_left()))
             .unwrap_or_else(|| RoomState {
                 members: Vec::new(),
+                countdown_seconds_left: None,
             })
     }
 
@@ -408,5 +421,20 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, RoomEvent::CountdownFinished))
         );
+    }
+
+    #[test]
+    fn countdown_state_reflects_remaining_seconds() {
+        let mut room = Room::new();
+        assert_eq!(room.countdown_seconds_left(), None);
+
+        room.start_countdown(5);
+        assert_eq!(room.countdown_seconds_left(), Some(5));
+
+        room.advance_countdown(Duration::from_millis(1500));
+        assert_eq!(room.countdown_seconds_left(), Some(4));
+
+        room.advance_countdown(Duration::from_secs(5));
+        assert_eq!(room.countdown_seconds_left(), None);
     }
 }

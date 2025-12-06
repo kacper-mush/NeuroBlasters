@@ -235,6 +235,7 @@ pub struct InputPayload {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct RoomState {
     pub members: Vec<RoomMember>,
+    pub countdown_seconds_left: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
