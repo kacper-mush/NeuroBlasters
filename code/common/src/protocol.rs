@@ -4,7 +4,7 @@ use thiserror::Error;
 
 // Message enums -------------------------------------------------------------
 
-pub const API_VERSION: ApiVersion = ApiVersion(1);
+pub const API_VERSION: ApiVersion = ApiVersion(2);
 
 /// All messages that the client can send to the server.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
