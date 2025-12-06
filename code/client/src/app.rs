@@ -1,4 +1,4 @@
-use crate::ui::{self, Text, Field};
+use crate::ui::{self, Field, Text};
 use macroquad::prelude::*;
 
 trait AppState {
@@ -85,11 +85,7 @@ impl MainMenu {
             ..Default::default()
         };
         Self {
-            input_field: ui::TextField::new(
-                Field::default(),
-                text_params,
-                16,
-            ),
+            input_field: ui::TextField::new(Field::default(), text_params, 16),
             play_pressed: false,
             quit_pressed: false,
         }
@@ -111,18 +107,14 @@ impl AppState for MainMenu {
                 ..Default::default()
             },
             ..Default::default()
-        }.draw("MAIN MENU", x_mid, 100.);
+        }
+        .draw("MAIN MENU", x_mid, 100.);
 
-        self.play_pressed = ui::Button::new(
-            Field::default(),
-            Some(default_text_params.clone())
-        ).draw_centered(x_mid, 200., 200., 50. ,Some("Play game"));
+        self.play_pressed = ui::Button::new(Field::default(), Some(default_text_params.clone()))
+            .draw_centered(x_mid, 200., 200., 50., Some("Play game"));
 
-        self.quit_pressed = ui::Button::new(
-            Field::default(),
-            Some(default_text_params.clone())
-        ).draw_centered(x_mid, 270., 200., 50., Some("Quit"));
-
+        self.quit_pressed = ui::Button::new(Field::default(), Some(default_text_params.clone()))
+            .draw_centered(x_mid, 270., 200., 50., Some("Quit"));
 
         self.input_field.draw_centered(x_mid, 400., 250., 50.);
     }
@@ -211,15 +203,11 @@ impl AppState for InGameMenu {
 
         ui::Text::new_simple(40).draw("PAUSED", x_mid, 150.);
 
-        self.resume_clicked = ui::Button::new(
-            Field::default(),
-            Some(default_text_params.clone())
-        ).draw_centered(x_mid, 250., 250., 50. ,Some("Resume"));
+        self.resume_clicked = ui::Button::new(Field::default(), Some(default_text_params.clone()))
+            .draw_centered(x_mid, 250., 250., 50., Some("Resume"));
 
-        self.quit_clicked = ui::Button::new(
-            Field::default(),
-            Some(default_text_params.clone())
-        ).draw_centered(x_mid, 320., 250., 50., Some("Exit to Main Menu"));
+        self.quit_clicked = ui::Button::new(Field::default(), Some(default_text_params.clone()))
+            .draw_centered(x_mid, 320., 250., 50., Some("Exit to Main Menu"));
     }
 
     fn update(&mut self) -> StateAction {

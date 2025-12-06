@@ -168,7 +168,10 @@ impl Button {
         let clicked = self.field.draw(x, y, w, h);
 
         if let Some(text_str) = text {
-            self.text.as_ref().map(|text| text.draw(text_str, x + w / 2., y + h / 2.));
+            self.text
+                .clone()
+                .unwrap_or_default()
+                .draw(text_str, x + w / 2., y + h / 2.);
         }
 
         clicked
