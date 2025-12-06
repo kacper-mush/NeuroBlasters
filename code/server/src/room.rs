@@ -9,6 +9,7 @@ use common::{
 };
 use rand::RngCore;
 use renet::ClientId;
+use tracing::error;
 
 use crate::{
     ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_IDLE_TIMEOUT, ServerApp, SessionInfo,
@@ -258,8 +259,12 @@ impl ServerApp {
             return;
         }
 
-        let Some((instance, context)) = GameInstance::start(member_sessions, &mut self.rng) else {
-            return;
+        let (instance, context) = match GameInstance::start(member_sessions, &mut self.rng) {
+            Ok(value) => value,
+            Err(err) => {
+                error!(?err, ?room_code, "failed to start game instance");
+                return;
+            }
         };
 
         {
@@ -413,18 +418,15 @@ impl ServerApp {
     pub(super) fn handle_input_message(
         &mut self,
         client_id: ClientId,
+        session: &SessionInfo,
         tick_id: TickId,
         payload: InputPayload,
     ) -> Result<(), ServerError> {
-        let room_code = self
-            .sessions
-            .get(&client_id)
-            .and_then(|session| session.room_code.clone())
-            .ok_or(ServerError::Input { tick_id })?;
+        let room_code = session.room_code.as_ref().ok_or(ServerError::Input { tick_id })?;
 
         let room = self
             .rooms
-            .get_mut(&room_code)
+            .get_mut(room_code)
             .ok_or(ServerError::Input { tick_id })?;
         let game = room.game_mut().ok_or(ServerError::Input { tick_id })?;
         game.submit_input(client_id, payload);

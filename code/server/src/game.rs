@@ -11,6 +11,7 @@ use common::{
 use glam::Vec2;
 use rand::rngs::StdRng;
 use renet::ClientId;
+use thiserror::Error;
 
 use crate::connection::SessionInfo;
 
@@ -18,6 +19,14 @@ const DEFAULT_TIME_LIMIT: f32 = 180.0;
 const PLAYER_RADIUS: f32 = 16.0;
 const PLAYER_SPEED: f32 = 225.0;
 const PLAYER_HEALTH: f32 = 100.0;
+
+#[derive(Debug, Error)]
+pub enum GameStartError {
+    #[error("game requires at least one player")]
+    NoPlayers,
+    #[error("unable to find spawn position for player {player_index}")]
+    SpawnPositionUnavailable { player_index: usize },
+}
 
 pub struct GameStartContext {
     pub initial_tick_id: TickId,
@@ -38,9 +47,9 @@ impl GameInstance {
     pub fn start(
         members: Vec<(ClientId, SessionInfo)>,
         rng: &mut StdRng,
-    ) -> Option<(Self, GameStartContext)> {
+    ) -> Result<(Self, GameStartContext), GameStartError> {
         if members.is_empty() {
-            return None;
+            return Err(GameStartError::NoPlayers);
         }
 
         let map = default_map();
@@ -51,7 +60,7 @@ impl GameInstance {
         for (index, (client_id, session)) in members.into_iter().enumerate() {
             let player_id = PlayerId(session.session_id.0);
             let spawn = find_spawn_position(&map, PLAYER_RADIUS, rng)
-                .unwrap_or_else(|| fallback_spawn(index));
+                .ok_or(GameStartError::SpawnPositionUnavailable { player_index: index })?;
             let team = if index % 2 == 0 {
                 Team::Blue
             } else {
@@ -100,7 +109,7 @@ impl GameInstance {
             initial_update,
         };
 
-        Some((instance, context))
+        Ok((instance, context))
     }
 
     pub fn submit_input(&mut self, client_id: ClientId, payload: InputPayload) {
@@ -152,16 +161,6 @@ impl GameInstance {
         }
         self.client_players.is_empty()
     }
-}
-
-fn fallback_spawn(index: usize) -> Vec2 {
-    let spacing = PLAYER_RADIUS * 4.0;
-    let row = (index / 4) as f32;
-    let col = (index % 4) as f32;
-    Vec2::new(
-        PLAYER_RADIUS + col * spacing,
-        PLAYER_RADIUS + row * spacing + 50.0,
-    )
 }
 
 fn default_map() -> MapDefinition {
