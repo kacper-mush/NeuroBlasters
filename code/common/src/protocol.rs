@@ -50,12 +50,9 @@ pub enum ServerMessage {
     /// Room leave result; players can't leave the room once game started.
     RoomLeaveOk,
     /// Game instance begins.
-    GameStart {
-        game_id: GameId,
-    },
+    GameStart,
     /// Game instance completes.
     GameEnd {
-        game_id: GameId,
         result: GameResult,
     },
     /// Per-round start signal.
@@ -70,14 +67,12 @@ pub enum ServerMessage {
     },
     /// Static map transfer.
     GameMap {
-        game_id: GameId,
         map: MapDefinition,
     },
-    /// Authoritative per-tick state.
-    GameState {
-        game_id: GameId,
+    /// Authoritative per-tick state & events batch.
+    GameUpdate {
         tick_id: TickId,
-        state: GameStateSnapshot,
+        update: GameUpdate,
     },
     PlayerKilled {
         kill_event: KillEvent,
@@ -143,6 +138,8 @@ pub enum CountdownError {
     NotInRoom,
     #[error("countdown duration must be greater than zero")]
     InvalidSeconds,
+    #[error("at least two players are required to start the countdown")]
+    NotEnoughPlayers,
 }
 
 // Concrete message payload structs -----------------------------------------
@@ -160,10 +157,6 @@ pub struct SessionId(pub u64);
 /// Human–facing lobby code used to join rooms.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct RoomCode(pub String);
-
-/// Unique identifier of a game instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct GameId(pub u64);
 
 /// Unique identifier of a round within a game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
@@ -261,6 +254,7 @@ pub enum RoomEvent {
     CountdownStarted { seconds: u32 },
     CountdownTick { seconds_left: u32 },
     CountdownFinished,
+    CountdownCancelled,
 }
 
 /// Result of a completed game.
@@ -289,6 +283,17 @@ pub struct GameStateSnapshot {
     pub players: Vec<PlayerState>,
     pub projectiles: Vec<Projectile>,
     pub time_remaining: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct GameUpdate {
+    pub state: GameStateSnapshot,
+    pub events: Vec<GameEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub enum GameEvent {
+    Placeholder,
 }
 
 // Tells who killed whom.

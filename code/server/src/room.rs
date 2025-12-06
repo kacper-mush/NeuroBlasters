@@ -10,23 +10,24 @@ use common::{
 use rand::RngCore;
 use renet::ClientId;
 
-use crate::{ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_IDLE_TIMEOUT, ServerApp, SessionInfo};
+use crate::{
+    countdown::{CountdownAdvance, CountdownTimer},
+    game::{GameInstance, GameStartContext, placeholder_game_update, placeholder_map},
+    ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROOM_IDLE_TIMEOUT, ServerApp, SessionInfo,
+};
 
+#[derive(Default)]
 pub struct Room {
     members: HashSet<ClientId>,
     pending_events: Vec<RoomEvent>,
     countdown: Option<CountdownTimer>,
     empty_since: Option<Instant>,
+    game: Option<GameInstance>,
 }
 
 impl Room {
     pub fn new() -> Self {
-        Self {
-            members: HashSet::new(),
-            pending_events: Vec::new(),
-            countdown: None,
-            empty_since: None,
-        }
+        Self::default()
     }
 
     pub fn add_member(&mut self, client_id: ClientId, nickname: String) -> bool {
@@ -46,6 +47,9 @@ impl Room {
             if self.members.is_empty() {
                 self.empty_since = Some(now);
             }
+            if self.members.len() < 2 {
+                self.cancel_countdown();
+            }
             true
         } else {
             false
@@ -58,19 +62,34 @@ impl Room {
             .push(RoomEvent::CountdownStarted { seconds });
     }
 
-    pub fn advance_countdown(&mut self, delta: Duration) -> bool {
-        let mut new_events = false;
+    pub fn advance_countdown(&mut self, delta: Duration) -> CountdownAdvance {
+        let mut result = CountdownAdvance::default();
         if let Some(timer) = self.countdown.as_mut() {
             let (events, finished) = timer.advance(delta);
             if !events.is_empty() {
                 self.pending_events.extend(events);
-                new_events = true;
+                result.emitted_events = true;
             }
             if finished {
                 self.countdown = None;
+                result.finished = true;
             }
         }
-        new_events
+        result
+    }
+
+    pub fn can_start_game(&self) -> bool {
+        self.members.len() >= 2
+    }
+
+    pub fn begin_game(&mut self, now: Instant) -> Option<GameStartContext> {
+        if self.game.is_some() || !self.can_start_game() {
+            return None;
+        }
+
+        let (instance, context) = GameInstance::start(now);
+        self.game = Some(instance);
+        Some(context)
     }
 
     pub fn has_pending_events(&self) -> bool {
@@ -90,9 +109,17 @@ impl Room {
     }
 
     pub fn should_remove(&self, now: Instant, timeout: Duration) -> bool {
-        if self.members.is_empty() {
-            self.empty_since
+        self.members.is_empty()
+            && self
+                .empty_since
                 .is_some_and(|since| now.duration_since(since) >= timeout)
+    }
+
+    pub fn cancel_countdown(&mut self) -> bool {
+        if self.countdown.take().is_some() {
+            self.pending_events
+                .push(RoomEvent::CountdownCancelled);
+            true
         } else {
             false
         }
@@ -103,15 +130,15 @@ impl ServerApp {
     pub(super) fn update_rooms(&mut self, delta: Duration) {
         let now = Instant::now();
         let mut rooms_to_update = Vec::new();
-        let mut rooms_to_remove = Vec::new();
+        let mut rooms_to_start = Vec::new();
 
         for (code, room) in self.rooms.iter_mut() {
-            if room.advance_countdown(delta) {
+            let countdown_progress = room.advance_countdown(delta);
+            if countdown_progress.emitted_events {
                 rooms_to_update.push(code.clone());
             }
-
-            if room.should_remove(now, ROOM_IDLE_TIMEOUT) {
-                rooms_to_remove.push(code.clone());
+            if countdown_progress.finished {
+                rooms_to_start.push(code.clone());
             }
         }
 
@@ -119,8 +146,10 @@ impl ServerApp {
             self.broadcast_room_update(&code);
         }
 
-        for code in rooms_to_remove {
-            self.rooms.remove(&code);
+        self.rooms.retain(|_, room| !room.should_remove(now, ROOM_IDLE_TIMEOUT));
+
+        for code in rooms_to_start {
+            self.bootstrap_room_game(&code, now);
         }
     }
 
@@ -152,19 +181,59 @@ impl ServerApp {
         }
     }
 
+    fn bootstrap_room_game(&mut self, room_code: &RoomCode, started_at: Instant) {
+        let (member_ids, start_context) = {
+            let Some(room) = self.rooms.get_mut(room_code) else {
+                return;
+            };
+
+            if !room.can_start_game() {
+                room.cancel_countdown();
+                return;
+            }
+
+            let member_ids = room.member_ids();
+            let Some(context) = room.begin_game(started_at) else {
+                return;
+            };
+
+            (member_ids, context)
+        };
+
+        if member_ids.is_empty() {
+            return;
+        }
+
+        let map = placeholder_map();
+        let update = placeholder_game_update();
+
+        for client_id in member_ids {
+            self.send_message(client_id, ServerMessage::GameStart);
+            self.send_message(
+                client_id,
+                ServerMessage::GameMap {
+                    map: map.clone(),
+                },
+            );
+            self.send_message(
+                client_id,
+                ServerMessage::GameUpdate {
+                    tick_id: start_context.initial_tick_id,
+                    update: update.clone(),
+                },
+            );
+        }
+    }
+
     pub(super) fn detach_client_from_room(&mut self, client_id: ClientId) -> Option<RoomCode> {
-        let (room_code, nickname) = self.sessions.get(&client_id).and_then(|session| {
-            session
-                .room_code
-                .clone()
-                .map(|code| (code, session.nickname.clone()))
-        })?;
+        let (room_code, nickname) = {
+            let session = self.sessions.get_mut(&client_id)?;
+            let code = session.room_code.take()?;
+            (code, session.nickname.clone())
+        };
 
         if let Some(room) = self.rooms.get_mut(&room_code) {
             room.remove_member(client_id, nickname, Instant::now());
-        }
-        if let Some(session) = self.sessions.get_mut(&client_id) {
-            session.room_code = None;
         }
         Some(room_code)
     }
@@ -174,16 +243,15 @@ impl ServerApp {
         client_id: ClientId,
         session: &SessionInfo,
     ) -> Result<(), RoomCreateError> {
-        let nickname = session.nickname.clone();
-        let current_room = session.room_code.clone();
-
-        if let Some(room_code) = current_room {
-            return Err(RoomCreateError::AlreadyInRoom { room_code });
+        if let Some(room_code) = &session.room_code {
+            return Err(RoomCreateError::AlreadyInRoom {
+                room_code: room_code.clone(),
+            });
         }
 
         let room_code = self.generate_room_code();
         let mut room = Room::new();
-        room.add_member(client_id, nickname.clone());
+        room.add_member(client_id, session.nickname.clone());
         self.rooms.insert(room_code.clone(), room);
 
         if let Some(session) = self.sessions.get_mut(&client_id) {
@@ -206,11 +274,10 @@ impl ServerApp {
         session: &SessionInfo,
         room_code: RoomCode,
     ) -> Result<(), RoomJoinError> {
-        let nickname = session.nickname.clone();
-        let current_room = session.room_code.clone();
-
-        if let Some(room_code) = current_room {
-            return Err(RoomJoinError::AlreadyInRoom { room_code });
+        if let Some(current_room) = &session.room_code {
+            return Err(RoomJoinError::AlreadyInRoom {
+                room_code: current_room.clone(),
+            });
         }
 
         if !Self::is_valid_room_code(&room_code) {
@@ -227,7 +294,7 @@ impl ServerApp {
                     room_code: room_code.clone(),
                 })?;
 
-            if !room.add_member(client_id, nickname) {
+            if !room.add_member(client_id, session.nickname.clone()) {
                 return Err(RoomJoinError::AlreadyInRoom {
                     room_code: room_code.clone(),
                 });
@@ -270,6 +337,9 @@ impl ServerApp {
                 .rooms
                 .get_mut(&room_code)
                 .ok_or(CountdownError::NotInRoom)?;
+            if !room.can_start_game() {
+                return Err(CountdownError::NotEnoughPlayers);
+            }
             room.start_countdown(seconds);
         }
         self.broadcast_room_update(&room_code);
@@ -316,7 +386,7 @@ impl ServerApp {
                 .collect();
             let room_code = RoomCode(code);
             if !self.rooms.contains_key(&room_code) {
-                break room_code;
+                return room_code;
             }
         }
     }
@@ -327,46 +397,6 @@ impl ServerApp {
                 .0
                 .chars()
                 .all(|c| c.is_ascii() && ROOM_CODE_ALPHABET.contains(&(c as u8)))
-    }
-}
-
-struct CountdownTimer {
-    remaining_seconds: f32,
-}
-
-impl CountdownTimer {
-    fn new(seconds: u32) -> Self {
-        Self {
-            remaining_seconds: seconds as f32,
-        }
-    }
-
-    fn advance(&mut self, delta: Duration) -> (Vec<RoomEvent>, bool) {
-        if self.remaining_seconds <= 0.0 {
-            panic!("Advancing countdown timer past zero");
-        }
-
-        let mut events = Vec::new();
-        let previous_whole = self.seconds_left();
-        self.remaining_seconds = (self.remaining_seconds - delta.as_secs_f32()).max(0.0);
-        let current_whole = self.seconds_left();
-
-        if current_whole < previous_whole {
-            events.push(RoomEvent::CountdownTick {
-                seconds_left: current_whole,
-            });
-        }
-
-        if self.remaining_seconds <= 0.0 {
-            events.push(RoomEvent::CountdownFinished);
-            return (events, true);
-        }
-
-        (events, false)
-    }
-
-    fn seconds_left(&self) -> u32 {
-        self.remaining_seconds.ceil() as u32
     }
 }
 
@@ -399,14 +429,17 @@ mod tests {
             RoomEvent::CountdownStarted { seconds: 2 }
         ));
 
-        assert!(room.advance_countdown(Duration::from_secs(1)));
+        let result = room.advance_countdown(Duration::from_secs(1));
+        assert!(result.emitted_events);
         let events = room.drain_events();
         assert!(matches!(
             events[0],
             RoomEvent::CountdownTick { seconds_left: 1 }
         ));
 
-        assert!(room.advance_countdown(Duration::from_secs(2)));
+        let result = room.advance_countdown(Duration::from_secs(2));
+        assert!(result.emitted_events);
+        assert!(result.finished);
         let events = room.drain_events();
         assert!(
             events
@@ -427,6 +460,26 @@ mod tests {
         assert_eq!(room.countdown_seconds_left(), Some(4));
 
         room.advance_countdown(Duration::from_secs(5));
+        assert_eq!(room.countdown_seconds_left(), None);
+    }
+
+    #[test]
+    fn countdown_cancels_when_players_leave() {
+        let mut room = Room::new();
+        let now = Instant::now();
+        assert!(room.add_member(1, "alpha".into()));
+        assert!(room.add_member(2, "bravo".into()));
+        room.start_countdown(3);
+        room.drain_events(); // discard start event
+
+        assert!(room.remove_member(2, "bravo".into(), now));
+        let events = room.drain_events();
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, RoomEvent::CountdownCancelled)),
+            "expected countdown cancel event"
+        );
         assert_eq!(room.countdown_seconds_left(), None);
     }
 }

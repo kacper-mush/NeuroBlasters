@@ -1,4 +1,6 @@
 mod connection;
+mod countdown;
+mod game;
 mod room;
 
 use std::{collections::HashMap, net::SocketAddr, net::UdpSocket, time::Duration, time::Instant};
@@ -13,7 +15,7 @@ use renet::{ClientId, ConnectionConfig, RenetServer, ServerEvent};
 use renet_netcode::{NetcodeServerTransport, ServerAuthentication, ServerConfig};
 use room::Room;
 use tokio::time::{self, MissedTickBehavior};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 use tracing_subscriber::EnvFilter;
 
 const SERVER_PORT: u16 = 8080;
@@ -156,81 +158,58 @@ impl ServerApp {
         let client_ids = self.server.clients_id();
         for client_id in client_ids {
             while let Some(bytes) = self.server.receive_message(client_id, RELIABLE_CHANNEL_ID) {
-                match decode_client_message(bytes.as_ref()) {
-                    Ok(message) => self.route_client_message(client_id, message),
-                    Err(err) => {
+                let result = decode_client_message(bytes.as_ref())
+                    .map_err(|err| {
                         debug!(client_id = %client_id, %err, "failed to decode client message");
-                        self.send_error(client_id, ServerError::General);
-                    }
-                }
-            }
-        }
-    }
+                        ServerError::General
+                    })
+                    .and_then(|msg| self.route_client_message(client_id, msg));
 
-    fn route_client_message(&mut self, client_id: ClientId, message: ClientMessage) {
-        match message {
-            ClientMessage::Connect {
-                api_version,
-                nickname,
-            } => {
-                if let Err(err) = self.handle_connect_message(client_id, api_version, nickname) {
-                    self.send_error(client_id, err.into());
-                }
-            }
-            other => {
-                let Some(session_snapshot) = self.sessions.get(&client_id).cloned() else {
-                    self.send_error(client_id, ConnectError::HandshakeRequired.into());
-                    return;
-                };
-                if let Err(err) = self.handle_client_message(client_id, &session_snapshot, other) {
+                if let Err(err) = result {
                     self.send_error(client_id, err);
                 }
             }
         }
     }
 
-    fn handle_client_message(
+    fn route_client_message(
         &mut self,
         client_id: ClientId,
-        session: &SessionInfo,
         message: ClientMessage,
     ) -> Result<(), ServerError> {
+        if let ClientMessage::Connect {
+            api_version,
+            nickname,
+        } = message
+        {
+            return self
+                .handle_connect_message(client_id, api_version, nickname)
+                .map_err(Into::into);
+        }
+
+        let session = self
+            .sessions
+            .get(&client_id)
+            .cloned()
+            .ok_or(ConnectError::HandshakeRequired)?;
+
         trace!(client_id = %client_id, ?message, "received client message");
         match message {
             ClientMessage::Disconnect => self.handle_disconnect_request(client_id)?,
-            ClientMessage::RoomCreate => self.handle_room_create(client_id, session)?,
+            ClientMessage::RoomCreate => self.handle_room_create(client_id, &session)?,
             ClientMessage::RoomJoin { room_code } => {
-                self.handle_room_join(client_id, session, room_code)?
+                self.handle_room_join(client_id, &session, room_code)?
             }
             ClientMessage::RoomLeave => self.handle_room_leave(client_id)?,
             ClientMessage::RoomStartCountdown { seconds } => {
-                self.handle_room_start_countdown(session, seconds)?
+                self.handle_room_start_countdown(&session, seconds)?
             }
-            other => self.handle_unimplemented_message(client_id, other)?,
+            _ => {
+                debug!(client_id = %client_id, ?message, "message type unimplemented");
+                return Err(ServerError::General);
+            }
         }
         Ok(())
-    }
-
-    fn handle_unimplemented_message(
-        &mut self,
-        client_id: ClientId,
-        message: ClientMessage,
-    ) -> Result<(), ServerError> {
-        if !self.sessions.contains_key(&client_id) {
-            if self.server.clients_id().contains(&client_id) {
-                warn!(
-                    client_id = %client_id,
-                    "received message before handshake completed"
-                );
-                return Err(ConnectError::HandshakeRequired.into());
-            } else {
-                warn!(client_id = %client_id, "received message for unknown client");
-            }
-            return Ok(());
-        }
-
-        debug!(client_id = %client_id, ?message, "message type unimplemented");
-        Err(ServerError::General)
     }
 
     fn send_error(&mut self, client_id: ClientId, error: ServerError) {
