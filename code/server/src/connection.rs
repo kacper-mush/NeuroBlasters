@@ -1,4 +1,4 @@
-use common::protocol::{API_VERSION, ApiVersion, ConnectError, RoomCode, ServerMessage, SessionId};
+use common::protocol::{API_VERSION, ApiVersion, ConnectError, ServerMessage, SessionId};
 use rand::RngCore;
 use renet::ClientId;
 
@@ -8,7 +8,6 @@ use crate::ServerApp;
 pub struct SessionInfo {
     pub session_id: SessionId,
     pub nickname: String,
-    pub room_code: Option<RoomCode>,
 }
 
 impl ServerApp {
@@ -48,7 +47,6 @@ impl ServerApp {
             SessionInfo {
                 session_id,
                 nickname,
-                room_code: None,
             },
         );
 
@@ -61,10 +59,6 @@ impl ServerApp {
         client_id: ClientId,
     ) -> Result<(), ConnectError> {
         tracing::debug!(client_id = %client_id, "client requested disconnect");
-        if let Some(room_code) = self.detach_client_from_room(client_id) {
-            self.broadcast_room_update(&room_code);
-        }
-
         self.sessions.remove(&client_id);
         self.server.disconnect(client_id);
         Ok(())
