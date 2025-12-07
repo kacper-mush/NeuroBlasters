@@ -1,4 +1,6 @@
 mod connection;
+mod client;
+use client::{ClientState, ClientEvent, GameManager};
 
 use std::{collections::HashMap, net::SocketAddr, net::UdpSocket, time::Duration, time::Instant};
 
@@ -64,9 +66,8 @@ struct ServerApp {
     server: RenetServer,
     transport: NetcodeServerTransport,
     /// Only authenticated (handshaken) clients are stored here.
-    sessions: HashMap<ClientId, SessionInfo>,
-    rng: StdRng,
-    last_tick: Instant,
+    client_states: HashMap<ClientId, ClientState>,
+    game_states: HashMap<GameId, GameState>,
 }
 
 impl ServerApp {
@@ -122,16 +123,18 @@ impl ServerApp {
         self.sessions.clear();
     }
 
-    /// Process server events - client connections and disconnections.
-    fn process_events(&mut self) {
+fn process_events(&mut self) {
         while let Some(event) = self.server.get_event() {
             match event {
                 ServerEvent::ClientConnected { client_id } => {
-                    info!(client_id = %client_id, "client connected");
+                    info!(client_id = %client_id, "Physical connection established");
+                    // Initialize new client in Handshaking state
+                    self.client_states.insert(client_id, ClientState::default());
                 }
                 ServerEvent::ClientDisconnected { client_id, reason } => {
-                    info!(client_id = %client_id, ?reason, "client disconnected");
-                    self.sessions.remove(&client_id);
+                    info!(client_id = %client_id, ?reason, "Physical disconnect");
+                    // TODO: Clean up game if they were in one
+                    self.client_states.remove(&client_id);
                 }
             }
         }
@@ -157,35 +160,54 @@ impl ServerApp {
     }
 
     fn route_client_message(
-        &mut self,
-        client_id: ClientId,
-        message: ClientMessage,
-    ) -> Result<(), ServerError> {
-        if let ClientMessage::Connect {
-            api_version,
-            nickname,
-        } = message
-        {
-            return self
-                .handle_connect_message(client_id, api_version, nickname)
-                .map_err(Into::into);
-        }
-
-        let session = self
-            .sessions
-            .get(&client_id)
-            .cloned()
-            .ok_or(ConnectError::HandshakeRequired)?;
-
-        trace!(client_id = %client_id, ?message, "received client message");
-        match message {
-            ClientMessage::Disconnect => self.handle_disconnect_request(client_id)?,
-            _ => {
-                debug!(client_id = %client_id, ?message, "message type unimplemented");
+            &mut self,
+            client_id: ClientId,
+            message: ClientMessage,
+        ) -> Result<(), ServerError> {
+            
+            // 1. Get the Client's current state
+            // If they aren't in the map, something went wrong with connection events.
+            let Some(current_state) = self.client_states.get(&client_id).cloned() else {
                 return Err(ServerError::General);
+            };
+
+            // 2. DECIDE: logic check (Validation)
+            let decision = client::handle_message(
+                &current_state, 
+                message, 
+                &mut self.game_manager
+            );
+
+            match decision {
+                Ok(Some(event)) => {
+                    // 3. APPLY: Update the state
+                    let new_state = current_state.apply(event.clone());
+                    self.client_states.insert(client_id, new_state);
+                    
+                    // 4. RESPOND: Tell the client what happened
+                    // You might want to convert ClientEvent -> ServerMessage here.
+                    // For example:
+                    match event {
+                        ClientEvent::HandshakeCompleted { .. } => {
+                            // send ServerMessage::ConnectOk...
+                        }
+                        ClientEvent::GameJoined { .. } => {
+                            // send ServerMessage::GameJoinOk...
+                        }
+                        _ => {}
+                    }
+                },
+                Ok(None) => {
+                    // Logic valid, but no state change (e.g. Chat)
+                },
+                Err(error_msg) => {
+                    // Logic failed (Game Full, Wrong Password, etc)
+                    // send ServerMessage::Error(error_msg)...
+                }
             }
+
+            Ok(())
         }
-        Ok(())
     }
 
     fn send_error(&mut self, client_id: ClientId, error: ServerError) {
