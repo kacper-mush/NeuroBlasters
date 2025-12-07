@@ -49,6 +49,8 @@ impl View for MainMenu {
         let sep = 80.;
         let mut button = Button::new(Field::default(), Some(default_text_params.clone()));
 
+        self.button_pressed = None;
+
         if button
             .draw_centered(x_mid, start_y, button_w, button_h, Some("Train Models"))
             .poll()
@@ -102,10 +104,6 @@ impl View for MainMenu {
             },
             None => Transition::None,
         }
-    }
-
-    fn on_resume(&mut self, _ctx: &mut AppContext, _from_overlay: bool) {
-        self.button_pressed = None;
     }
 
     fn get_id(&self) -> ViewId {

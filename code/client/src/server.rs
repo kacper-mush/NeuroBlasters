@@ -109,11 +109,6 @@ impl Server {
         servername == "sigma.net"
     }
 
-    pub fn connected(&self) -> bool {
-        // Checks whether the connection is still alive
-        true
-    }
-
     pub fn create_room(&self) -> bool {
         true
     }
