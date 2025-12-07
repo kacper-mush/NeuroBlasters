@@ -1,48 +1,21 @@
 use crate::app::{AppState, StateAction};
 use crate::server::Server;
 use crate::ui::{self, Field};
-use common::game_logic::apply_player_physics;
-use common::protocol::{InputPayload, MapDefinition, PlayerId, PlayerState, RectWall, Team};
+use common::game::engine::GameEngine;
+use common::protocol::{InputPayload, Team};
 use macroquad::prelude::*;
 
 pub(crate) struct Game {
     server: Server,
-    player: PlayerState,
-    map: MapDefinition,
+    game_engine: GameEngine,
 }
 
 impl Game {
     pub fn new(server: Server) -> Self {
-        let player = PlayerState {
-            id: PlayerId(1),
-            position: (100.0, 100.0).into(),
-            velocity: (0.0, 0.0).into(),
-            rotation: 0.0,
-            radius: 15.0,
-            speed: 200.0,
-            health: 100.0,
-            weapon_cooldown: 0.0,
-            team: Team::Blue,
-        };
-
-        let map = MapDefinition {
-            width: screen_width(),
-            height: screen_height(),
-            walls: vec![
-                RectWall {
-                    min: (200.0, 200.0).into(),
-                    max: (300.0, 400.0).into(),
-                }, // Test Obstacle
-                RectWall {
-                    min: (500.0, 100.0).into(),
-                    max: (700.0, 150.0).into(),
-                }, // Test Obstacle
-            ],
-        };
+        let map = server.get_map();
         Self {
             server,
-            player,
-            map,
+            game_engine: GameEngine::new(map.clone()),
         }
     }
 }
@@ -52,7 +25,7 @@ impl AppState for Game {
         clear_background(LIGHTGRAY);
 
         // 4. Draw Map
-        for wall in &self.map.walls {
+        for wall in &self.game_engine.map.walls {
             draw_rectangle(
                 wall.min.x,
                 wall.min.y,
@@ -62,27 +35,39 @@ impl AppState for Game {
             );
         }
 
-        // 5. Draw Player
-        draw_circle(
-            self.player.position.x,
-            self.player.position.y,
-            self.player.radius,
-            BLUE,
-        );
+        for player in &self.game_engine.state.players {
+            draw_circle(
+                player.position.x,
+                player.position.y,
+                player.radius,
+                if player.team == Team::Blue { BLUE } else { RED },
+            );
 
-        // Draw Direction Line
-        let aim_dir = Vec2::new(self.player.rotation.cos(), self.player.rotation.sin());
-        draw_line(
-            self.player.position.x,
-            self.player.position.y,
-            self.player.position.x + aim_dir.x * 30.0,
-            self.player.position.y + aim_dir.y * 30.0,
-            2.0,
-            RED,
-        );
+            let aim_dir = Vec2::new(player.rotation.cos(), player.rotation.sin());
+            draw_line(
+                player.position.x,
+                player.position.y,
+                player.position.x + aim_dir.x * 30.0,
+                player.position.y + aim_dir.y * 30.0,
+                2.0,
+                RED,
+            );
+        }
+
+        for projectile in &self.game_engine.state.projectiles {
+            draw_circle(
+                projectile.position.x,
+                projectile.position.y,
+                projectile.radius,
+                YELLOW,
+            )
+        }
     }
 
     fn update(&mut self) -> StateAction {
+        self.server.tick();
+        self.game_engine.sync_state(self.server.get_tick());
+
         let input = InputPayload {
             move_axis: {
                 let mut axis = (0.0f32, 0.0f32);
@@ -110,8 +95,7 @@ impl AppState for Game {
             shoot: is_mouse_button_down(MouseButton::Left),
         };
 
-        // 3. Run Your Physics Engine
-        apply_player_physics(&mut self.player, &input, &self.map, get_frame_time());
+        self.server.send_input(input);
 
         if is_key_pressed(KeyCode::Escape) {
             return StateAction::Push(Box::new(InGameMenu::new()));

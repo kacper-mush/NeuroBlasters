@@ -330,7 +330,7 @@ enum RoomMenuButtons {
 struct RoomMenu {
     button_pressed: Option<RoomMenuButtons>,
     room_code_field: TextField,
-    server: Server,
+    server: Option<Server>,
     message: Option<String>,
 }
 
@@ -339,7 +339,7 @@ impl RoomMenu {
         RoomMenu {
             button_pressed: None,
             room_code_field: TextField::new(Field::default(), TextParams::default(), 10),
-            server,
+            server: Some(server),
             message: None,
         }
     }
@@ -394,8 +394,8 @@ impl AppState for RoomMenu {
         match self.button_pressed {
             Some(button) => match button {
                 RoomMenuButtons::Create => {
-                    if self.server.create_room() {
-                        StateAction::Push(Box::new(RoomView::new(self.server.clone())))
+                    if self.server.as_mut().unwrap().create_room() {
+                        StateAction::Push(Box::new(RoomView::new(self.server.take().unwrap())))
                     } else {
                         self.message = Some("Could not create the room!".into());
                         StateAction::None
@@ -408,8 +408,10 @@ impl AppState for RoomMenu {
                         return StateAction::None;
                     }
 
-                    if self.server.join_room(room_code.unwrap()) {
-                        return StateAction::Push(Box::new(RoomView::new(self.server.clone())));
+                    if self.server.as_mut().unwrap().join_room(room_code.unwrap()) {
+                        return StateAction::Push(Box::new(RoomView::new(
+                            self.server.take().unwrap(),
+                        )));
                     }
 
                     self.message = Some("Could not join the room!".into());
@@ -422,7 +424,7 @@ impl AppState for RoomMenu {
     }
 
     fn on_resume(&mut self) {
-        *self = Self::new(self.server.clone())
+        *self = Self::new(Server::new())
     }
 }
 
@@ -434,7 +436,7 @@ enum RoomViewButtons {
 
 struct RoomView {
     button_pressed: Option<RoomViewButtons>,
-    server: Server,
+    server: Option<Server>,
     room_code: u32,
     player_names: Vec<String>,
 }
@@ -443,7 +445,7 @@ impl RoomView {
     fn new(server: Server) -> Self {
         Self {
             button_pressed: None,
-            server,
+            server: Some(server),
             room_code: 0,
             player_names: Vec::new(),
         }
@@ -488,12 +490,12 @@ impl AppState for RoomView {
     }
 
     fn update(&mut self) -> StateAction {
-        self.room_code = match self.server.get_room_code() {
+        self.room_code = match self.server.as_mut().unwrap().get_room_code() {
             Ok(code) => code,
             Err(_) => return StateAction::Pop(1),
         };
 
-        self.player_names = match self.server.get_player_list() {
+        self.player_names = match self.server.as_mut().unwrap().get_player_list() {
             Ok(player_list) => player_list,
             Err(_) => return StateAction::Pop(1),
         };
@@ -501,12 +503,12 @@ impl AppState for RoomView {
         match self.button_pressed {
             Some(button) => match button {
                 RoomViewButtons::Leave => {
-                    self.server.leave();
+                    self.server.as_mut().unwrap().leave();
                     StateAction::Pop(1)
                 }
                 RoomViewButtons::Start => {
-                    if self.server.start_game() {
-                        return StateAction::Push(Box::new(Game::new(self.server.clone())));
+                    if self.server.as_mut().unwrap().start_game() {
+                        return StateAction::Push(Box::new(Game::new(self.server.take().unwrap())));
                     }
 
                     StateAction::None
