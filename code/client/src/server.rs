@@ -21,22 +21,52 @@ pub(crate) enum ServerError {
 impl Server {
     pub fn new() -> Self {
         let map = MapDefinition {
-            width: 1920.,
-            height: 1080.,
+            width: 1600.0,
+            height: 900.0,
             walls: vec![
                 RectWall {
-                    min: (200.0, 200.0).into(),
-                    max: (300.0, 400.0).into(),
+                    min: (410.0, 658.0).into(),
+                    max: (1194.0, 720.0).into(),
                 },
                 RectWall {
-                    min: (500.0, 100.0).into(),
-                    max: (700.0, 150.0).into(),
+                    min: (417.0, 173.0).into(),
+                    max: (1170.0, 238.0).into(),
+                },
+                RectWall {
+                    min: (1157.0, 386.0).into(),
+                    max: (1358.0, 431.0).into(),
+                },
+                RectWall {
+                    min: (1326.0, 527.0).into(),
+                    max: (1537.0, 570.0).into(),
+                },
+                RectWall {
+                    min: (100.0, 535.0).into(),
+                    max: (321.0, 584.0).into(),
+                },
+                RectWall {
+                    min: (259.0, 372.0).into(),
+                    max: (504.0, 427.0).into(),
+                },
+                RectWall {
+                    min: (787.0, 322.0).into(),
+                    max: (828.0, 566.0).into(),
                 },
             ],
         };
 
-        let mut game_engine = GameEngine::new(map);
-        game_engine.add_player(PlayerState {
+        let spawn_points = vec![
+            (460.0, 822.0),
+            (634.0, 818.0),
+            (851.0, 823.0),
+            (1095.0, 823.0),
+            (1061.0, 77.0),
+            (840.0, 70.0),
+            (666.0, 74.0),
+            (479.0, 78.0),
+        ];
+
+        let default_player = PlayerState {
             id: PlayerId(1),
             position: (100.0, 100.0).into(),
             velocity: (0.0, 0.0).into(),
@@ -46,44 +76,44 @@ impl Server {
             health: 100.0,
             weapon_cooldown: 0.0,
             team: Team::Blue,
-        });
+        };
+
+        let mut game_engine = GameEngine::new(map);
+        let player_id = 1;
+        let bot_id_range = (2, 8);
+        let mut bot_vec = Vec::new();
 
         game_engine.add_player(PlayerState {
-            id: PlayerId(2),
-            position: (500.0, 500.0).into(),
-            velocity: (0.0, 0.0).into(),
-            rotation: 0.0,
-            radius: 15.0,
-            speed: 200.0,
-            health: 100.0,
-            weapon_cooldown: 0.0,
-            team: Team::Red,
-        });
-
-        game_engine.add_player(PlayerState {
-            id: PlayerId(3),
-            position: (1000.0, 100.0).into(),
-            velocity: (0.0, 0.0).into(),
-            rotation: 0.0,
-            radius: 15.0,
-            speed: 200.0,
-            health: 100.0,
-            weapon_cooldown: 0.0,
+            id: PlayerId(player_id),
+            position: spawn_points[0].into(),
             team: Team::Blue,
+            ..default_player
         });
+
+        for id in bot_id_range.0..=bot_id_range.1 {
+            game_engine.add_player(PlayerState {
+                id: PlayerId(id),
+                position: spawn_points[(id - 1) as usize].into(),
+                team: if id <= 4 { Team::Blue } else { Team::Red },
+                ..default_player
+            });
+            bot_vec.push((PlayerId(id), BotAgent::new(BotDifficulty::Terminator, 2137)));
+        }
 
         Self {
             game_engine,
             inputs: HashMap::new(),
-            bots: vec![
-                (PlayerId(2), BotAgent::new(BotDifficulty::Terminator, 2137)),
-                (PlayerId(3), BotAgent::new(BotDifficulty::Turret, 222)),
-            ],
+            bots: bot_vec,
         }
     }
 
     pub fn connect(&self, servername: String) -> bool {
         servername == "sigma.net"
+    }
+
+    pub fn connected(&self) -> bool {
+        // Checks whether the connection is still alive
+        true
     }
 
     pub fn create_room(&self) -> bool {
@@ -108,8 +138,15 @@ impl Server {
         Ok(2317)
     }
 
-    pub fn start_game(&self) -> bool {
+    /// Attempt to start the game. Will fail if not the host.
+    pub fn start_game(&mut self) -> bool {
+        *self = Self::new(); // refresh the map and stuff
         true
+    }
+
+    /// Check if game already started
+    pub fn game_started(&self) -> bool {
+        false
     }
 
     pub fn get_map(&self) -> MapDefinition {

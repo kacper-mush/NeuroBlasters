@@ -3,40 +3,90 @@ use crate::server::Server;
 use crate::ui::{Button, Field, Text, TextField};
 use macroquad::prelude::*;
 
-pub(crate) trait AppState {
-    fn update(&mut self) -> StateAction;
-    fn draw(&mut self);
-    /// Decides whether this is a base view, or if it is an overlay.
-    fn draw_previous(&self) -> bool {
-        false
-    }
-    /// The state can decide what it does when it gets resumed
-    fn on_resume(&mut self) {}
+// Global data that persists across views
+pub(crate) struct AppContext {
+    pub server: Option<Server>,
 }
 
-pub(crate) enum StateAction {
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub(crate) enum ViewId {
+    MainMenu,
+    TrainingMenu,
+    ServerConnectMenu,
+    RoomMenu,
+    RoomLobby,
+    Game,
+    InGameMenu,
+    OptionsMenu,
+}
+
+pub(crate) enum Transition {
     None,
-    /// Add a new state on top (another menu, etc.)
-    Push(Box<dyn AppState>),
-    /// Remove a number of states from top (like collapse the whole menu)
-    Pop(u16),
+    /// Push a new state onto the stack
+    Push(Box<dyn View>),
+    /// Pop the top state
+    Pop,
+    /// Pop states until we find the specific ID (e.g., "Back to Main Menu")
+    PopUntil(ViewId),
+    /// A state that was reliant on a server connection lost it
+    ConnectionLost,
+}
+
+pub(crate) trait View {
+    fn get_id(&self) -> ViewId;
+
+    /// Function for the main update doing all the work
+    fn update(&mut self, ctx: &mut AppContext) -> Transition;
+
+    /// Update that is called for View not on top of the app stack,
+    /// no input handling is allowed
+    fn shadow_update(&mut self, _ctx: &mut AppContext) {}
+
+    fn draw(&mut self, ctx: &AppContext);
+
+    // -- Lifecycle Hooks --
+
+    /// Called when this state becomes the top of the stack
+    fn on_start(&mut self, _ctx: &mut AppContext) {}
+
+    /// Called when a new state is pushed on TOP of this one.
+    fn on_pause(&mut self, _ctx: &mut AppContext) {}
+
+    /// Called when some amount of states above this one were popped.
+    /// `from_overlay` tells us if the thing that just closed was a popup or a full view.
+    fn on_resume(&mut self, _ctx: &mut AppContext, _from_overlay: bool) {
+        // Default behavior: Do nothing (preserve text fields).
+        // If we want to reset, we override this method.
+    }
+
+    /// Helper to determine if we should draw the state below this one.
+    fn is_overlay(&self) -> bool {
+        false
+    }
 }
 
 pub(crate) struct App {
-    stack: Vec<Box<dyn AppState>>,
+    stack: Vec<Box<dyn View>>,
+    context: AppContext,
 }
 
 impl App {
     pub fn new() -> Self {
         App {
             stack: vec![Box::new(MainMenu::new())],
+            context: AppContext { server: None },
         }
     }
 
     pub async fn run(&mut self) {
-        while let Some(state) = self.stack.last_mut() {
-            // We only run update for the State on top of the stack
-            let action = state.update();
+        while !self.stack.is_empty() {
+            // We only run update for the state on top of the stack
+            let mut transition = self.stack.last_mut().unwrap().update(&mut self.context);
+
+            // Shadow update all the remaining states
+            for i in 0..self.stack.len() - 1 {
+                self.stack[i].shadow_update(&mut self.context);
+            }
 
             clear_background(DARKBLUE);
 
@@ -44,29 +94,71 @@ impl App {
             // Start from the top of the stack
             let mut start_index = 0;
             for i in (0..self.stack.len()).rev() {
-                if !self.stack[i].draw_previous() {
+                if !self.stack[i].is_overlay() {
                     start_index = i;
                     break;
                 }
             }
 
-            // B. Draw from the floor up to the top
+            // Draw from the floor up to the top
             for i in start_index..self.stack.len() {
-                self.stack[i].draw();
+                self.stack[i].draw(&self.context);
             }
 
-            match action {
-                StateAction::Push(new_state) => self.stack.push(new_state),
-                StateAction::Pop(n) => {
-                    let to_keep = self.stack.len() - n as usize;
-                    self.stack.truncate(to_keep);
+            // For a connection lost transition, we want to return to the ServerConnectMenu
+            if matches!(transition, Transition::ConnectionLost) {
+                self.context.server = None;
+                transition = Transition::PopUntil(ViewId::ServerConnectMenu)
+                // A place for additional handling...
+            }
 
-                    // Tell the state that it came back into focus
-                    if let Some(state) = self.stack.last_mut() {
-                        state.on_resume();
+            match transition {
+                Transition::Push(new_state) => {
+                    // Pause the current state, push the new one, and start it
+                    self.stack.last_mut().unwrap().on_pause(&mut self.context);
+                    self.stack.push(new_state);
+                    self.stack.last_mut().unwrap().on_start(&mut self.context);
+                }
+                Transition::PopUntil(target_id) => {
+                    // We try to find the state with provided target_id. We panic if we don't
+                    // find it, as it is clearly a bug
+                    let mut only_overlay = true;
+                    loop {
+                        let curr_top = self
+                            .stack
+                            .last()
+                            .expect("Provided target id did not exist in the app stack!");
+                        if curr_top.get_id() == target_id {
+                            break;
+                        }
+
+                        if !curr_top.is_overlay() {
+                            // There was something on top of the target that completely covered it
+                            only_overlay = false;
+                        }
+                        self.stack.pop();
+                    }
+
+                    // After the loop, there is at least 1 element on the stack, and the top
+                    // is our target.
+                    self.stack
+                        .last_mut()
+                        .unwrap()
+                        .on_resume(&mut self.context, only_overlay);
+                }
+                Transition::Pop => {
+                    let from_overlay = self.stack.last_mut().unwrap().is_overlay();
+                    self.stack.pop();
+
+                    if let Some(new_top) = self.stack.last_mut() {
+                        // If there is something left on the stack, we should resume it.
+                        new_top.as_mut().on_resume(&mut self.context, from_overlay);
                     }
                 }
-                StateAction::None => {}
+                Transition::ConnectionLost => {
+                    // Will not happen
+                }
+                Transition::None => {}
             }
 
             next_frame().await;
@@ -94,8 +186,8 @@ impl MainMenu {
     }
 }
 
-impl AppState for MainMenu {
-    fn draw(&mut self) {
+impl View for MainMenu {
+    fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = screen_width() / 2.;
         let default_text_params = TextParams {
             font_size: 30,
@@ -117,8 +209,6 @@ impl AppState for MainMenu {
         let button_h = 50.;
         let sep = 80.;
         let mut button = Button::new(Field::default(), Some(default_text_params.clone()));
-
-        self.button_pressed = None;
 
         if button
             .draw_centered(x_mid, start_y, button_w, button_h, Some("Train Models"))
@@ -161,18 +251,26 @@ impl AppState for MainMenu {
         }
     }
 
-    fn update(&mut self) -> StateAction {
+    fn update(&mut self, _ctx: &mut AppContext) -> Transition {
         match self.button_pressed {
             Some(button) => match button {
-                MainMenuButtons::Training => StateAction::Push(Box::new(TrainingMenu::new())),
+                MainMenuButtons::Training => Transition::Push(Box::new(TrainingMenu::new())),
                 MainMenuButtons::Multiplayer => {
-                    StateAction::Push(Box::new(ServerConnectMenu::new()))
+                    Transition::Push(Box::new(ServerConnectMenu::new()))
                 }
-                MainMenuButtons::Options => StateAction::Push(Box::new(OptionsMenu::new())),
-                MainMenuButtons::Quit => StateAction::Pop(1),
+                MainMenuButtons::Options => Transition::Push(Box::new(OptionsMenu::new())),
+                MainMenuButtons::Quit => Transition::Pop,
             },
-            None => StateAction::None,
+            None => Transition::None,
         }
+    }
+
+    fn on_resume(&mut self, _ctx: &mut AppContext, _from_overlay: bool) {
+        self.button_pressed = None;
+    }
+
+    fn get_id(&self) -> ViewId {
+        ViewId::MainMenu
     }
 }
 
@@ -188,8 +286,8 @@ impl TrainingMenu {
     }
 }
 
-impl AppState for TrainingMenu {
-    fn draw(&mut self) {
+impl View for TrainingMenu {
+    fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = screen_width() / 2.;
 
         Text::new_simple(30).draw("Training coming soon!", x_mid, 200.);
@@ -198,12 +296,16 @@ impl AppState for TrainingMenu {
             .poll();
     }
 
-    fn update(&mut self) -> StateAction {
+    fn update(&mut self, _ctx: &mut AppContext) -> Transition {
         if self.back_clicked {
-            StateAction::Pop(1)
+            Transition::Pop
         } else {
-            StateAction::None
+            Transition::None
         }
+    }
+
+    fn get_id(&self) -> ViewId {
+        ViewId::TrainingMenu
     }
 }
 
@@ -219,8 +321,8 @@ impl OptionsMenu {
     }
 }
 
-impl AppState for OptionsMenu {
-    fn draw(&mut self) {
+impl View for OptionsMenu {
+    fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = screen_width() / 2.;
 
         Text::new_simple(30).draw("Options here...", x_mid, 200.);
@@ -229,12 +331,16 @@ impl AppState for OptionsMenu {
             .poll();
     }
 
-    fn update(&mut self) -> StateAction {
+    fn update(&mut self, _ctx: &mut AppContext) -> Transition {
         if self.back_clicked {
-            StateAction::Pop(1)
+            Transition::Pop
         } else {
-            StateAction::None
+            Transition::None
         }
+    }
+
+    fn get_id(&self) -> ViewId {
+        ViewId::OptionsMenu
     }
 }
 
@@ -260,8 +366,8 @@ impl ServerConnectMenu {
     }
 }
 
-impl AppState for ServerConnectMenu {
-    fn draw(&mut self) {
+impl View for ServerConnectMenu {
+    fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = screen_width() / 2.;
         let mut button = Button::new(Field::default(), Some(TextParams::default()));
         let w = 300.;
@@ -295,7 +401,7 @@ impl AppState for ServerConnectMenu {
         }
     }
 
-    fn update(&mut self) -> StateAction {
+    fn update(&mut self, ctx: &mut AppContext) -> Transition {
         self.servername_field.update();
 
         match self.button_pressed {
@@ -303,20 +409,29 @@ impl AppState for ServerConnectMenu {
                 ServerConnectButtons::Connect => {
                     let server = Server::new();
                     if server.connect(self.servername_field.text()) {
-                        return StateAction::Push(Box::new(RoomMenu::new(server)));
+                        ctx.server = Some(server);
+                        return Transition::Push(Box::new(RoomMenu::new()));
                     }
 
                     self.message = Some("Could not connect to the server!".into());
-                    StateAction::None
+                    Transition::None
                 }
-                ServerConnectButtons::Back => StateAction::Pop(1),
+                ServerConnectButtons::Back => Transition::Pop,
             },
-            None => StateAction::None,
+            None => Transition::None,
         }
     }
 
-    fn on_resume(&mut self) {
-        *self = Self::new()
+    fn on_resume(&mut self, _ctx: &mut AppContext, from_overlay: bool) {
+        // For overlays, we don't want the input to disappear
+        if !from_overlay {
+            self.message = None;
+            self.servername_field.reset();
+        }
+    }
+
+    fn get_id(&self) -> ViewId {
+        ViewId::ServerConnectMenu
     }
 }
 
@@ -330,23 +445,21 @@ enum RoomMenuButtons {
 struct RoomMenu {
     button_pressed: Option<RoomMenuButtons>,
     room_code_field: TextField,
-    server: Option<Server>,
     message: Option<String>,
 }
 
 impl RoomMenu {
-    fn new(server: Server) -> Self {
+    fn new() -> Self {
         RoomMenu {
             button_pressed: None,
             room_code_field: TextField::new(Field::default(), TextParams::default(), 10),
-            server: Some(server),
             message: None,
         }
     }
 }
 
-impl AppState for RoomMenu {
-    fn draw(&mut self) {
+impl View for RoomMenu {
+    fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = screen_width() / 2.;
         let mut button = Button::new(Field::default(), Some(TextParams::default()));
         let w = 300.;
@@ -383,48 +496,59 @@ impl AppState for RoomMenu {
             self.button_pressed = Some(RoomMenuButtons::Back);
         }
 
-        if let Some(message) = self.message.clone() {
-            Text::new_simple(30).draw(&message, x_mid, y_start + 5. * sep);
+        if let Some(message) = self.message.as_ref() {
+            Text::new_simple(30).draw(message, x_mid, y_start + 5. * sep);
         }
     }
 
-    fn update(&mut self) -> StateAction {
+    fn update(&mut self, ctx: &mut AppContext) -> Transition {
         self.room_code_field.update();
+
+        if ctx.server.is_none() {
+            return Transition::ConnectionLost;
+        }
+
+        let server = ctx.server.as_ref().unwrap();
 
         match self.button_pressed {
             Some(button) => match button {
                 RoomMenuButtons::Create => {
-                    if self.server.as_mut().unwrap().create_room() {
-                        StateAction::Push(Box::new(RoomView::new(self.server.take().unwrap())))
+                    if server.create_room() {
+                        Transition::Push(Box::new(RoomView::new()))
                     } else {
                         self.message = Some("Could not create the room!".into());
-                        StateAction::None
+                        Transition::None
                     }
                 }
                 RoomMenuButtons::Join => {
                     let room_code = self.room_code_field.text().parse::<u32>();
                     if room_code.is_err() {
                         self.message = Some("Invalid room code!".into());
-                        return StateAction::None;
+                        return Transition::None;
                     }
 
-                    if self.server.as_mut().unwrap().join_room(room_code.unwrap()) {
-                        return StateAction::Push(Box::new(RoomView::new(
-                            self.server.take().unwrap(),
-                        )));
+                    if server.join_room(room_code.unwrap()) {
+                        return Transition::Push(Box::new(RoomView::new()));
                     }
 
                     self.message = Some("Could not join the room!".into());
-                    StateAction::None
+                    Transition::None
                 }
-                RoomMenuButtons::Back => StateAction::Pop(1),
+                RoomMenuButtons::Back => Transition::Pop,
             },
-            None => StateAction::None,
+            None => Transition::None,
         }
     }
 
-    fn on_resume(&mut self) {
-        *self = Self::new(Server::new())
+    fn on_resume(&mut self, _ctx: &mut AppContext, from_overlay: bool) {
+        if !from_overlay {
+            self.message = None;
+            self.room_code_field.reset();
+        }
+    }
+
+    fn get_id(&self) -> ViewId {
+        ViewId::RoomMenu
     }
 }
 
@@ -436,24 +560,22 @@ enum RoomViewButtons {
 
 struct RoomView {
     button_pressed: Option<RoomViewButtons>,
-    server: Option<Server>,
     room_code: u32,
     player_names: Vec<String>,
 }
 
 impl RoomView {
-    fn new(server: Server) -> Self {
+    fn new() -> Self {
         Self {
             button_pressed: None,
-            server: Some(server),
             room_code: 0,
             player_names: Vec::new(),
         }
     }
 }
 
-impl AppState for RoomView {
-    fn draw(&mut self) {
+impl View for RoomView {
+    fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = screen_width() / 2.;
         let mut button = Button::new(Field::default(), Some(TextParams::default()));
         let w = 300.;
@@ -489,32 +611,54 @@ impl AppState for RoomView {
         }
     }
 
-    fn update(&mut self) -> StateAction {
-        self.room_code = match self.server.as_mut().unwrap().get_room_code() {
+    fn update(&mut self, ctx: &mut AppContext) -> Transition {
+        if ctx.server.is_none() {
+            return Transition::ConnectionLost;
+        }
+
+        let server = ctx.server.as_mut().unwrap();
+
+        if server.game_started() {
+            let game = Game::try_new(ctx);
+            match game {
+                Some(game) => return Transition::Push(Box::new(game)),
+                None => return Transition::ConnectionLost,
+            }
+        }
+
+        self.room_code = match server.get_room_code() {
             Ok(code) => code,
-            Err(_) => return StateAction::Pop(1),
+            Err(_) => return Transition::Pop,
         };
 
-        self.player_names = match self.server.as_mut().unwrap().get_player_list() {
+        self.player_names = match server.get_player_list() {
             Ok(player_list) => player_list,
-            Err(_) => return StateAction::Pop(1),
+            Err(_) => return Transition::Pop,
         };
 
         match self.button_pressed {
             Some(button) => match button {
                 RoomViewButtons::Leave => {
-                    self.server.as_mut().unwrap().leave();
-                    StateAction::Pop(1)
+                    server.leave();
+                    Transition::Pop
                 }
                 RoomViewButtons::Start => {
-                    if self.server.as_mut().unwrap().start_game() {
-                        return StateAction::Push(Box::new(Game::new(self.server.take().unwrap())));
+                    if server.start_game() {
+                        let game = Game::try_new(ctx);
+                        match game {
+                            Some(game) => return Transition::Push(Box::new(game)),
+                            None => return Transition::ConnectionLost,
+                        }
                     }
 
-                    StateAction::None
+                    Transition::None
                 }
             },
-            None => StateAction::None,
+            None => Transition::None,
         }
+    }
+
+    fn get_id(&self) -> ViewId {
+        ViewId::RoomLobby
     }
 }

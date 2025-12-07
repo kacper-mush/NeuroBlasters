@@ -1,27 +1,30 @@
-use crate::app::{AppState, StateAction};
-use crate::server::Server;
+use crate::app::{AppContext, Transition, View, ViewId};
 use crate::ui::{self, Field};
 use common::game::engine::GameEngine;
 use common::protocol::{InputPayload, Team};
 use macroquad::prelude::*;
 
 pub(crate) struct Game {
-    server: Server,
     game_engine: GameEngine,
 }
 
 impl Game {
-    pub fn new(server: Server) -> Self {
-        let map = server.get_map();
-        Self {
-            server,
-            game_engine: GameEngine::new(map.clone()),
+    /// tries to create a new game. If server responds, it will succeed
+    pub fn try_new(ctx: &mut AppContext) -> Option<Self> {
+        if ctx.server.is_none() {
+            return None;
         }
+        let server = ctx.server.as_ref().unwrap();
+
+        let map = server.get_map();
+        Some(Self {
+            game_engine: GameEngine::new(map.clone()),
+        })
     }
 }
 
-impl AppState for Game {
-    fn draw(&mut self) {
+impl View for Game {
+    fn draw(&mut self, _ctx: &AppContext) {
         clear_background(LIGHTGRAY);
 
         // 4. Draw Map
@@ -64,9 +67,14 @@ impl AppState for Game {
         }
     }
 
-    fn update(&mut self) -> StateAction {
-        self.server.tick();
-        self.game_engine.sync_state(self.server.get_tick());
+    fn update(&mut self, ctx: &mut AppContext) -> Transition {
+        if ctx.server.is_none() {
+            return Transition::ConnectionLost;
+        }
+        let server = ctx.server.as_mut().unwrap();
+
+        server.tick();
+        self.game_engine.sync_state(server.get_tick());
 
         let input = InputPayload {
             move_axis: {
@@ -92,16 +100,31 @@ impl AppState for Game {
                 axis.into()
             },
             aim_pos: mouse_position().into(),
-            shoot: is_mouse_button_down(MouseButton::Left),
+            shoot: is_mouse_button_down(MouseButton::Left) || is_key_down(KeyCode::Space),
         };
 
-        self.server.send_input(input);
+        server.send_input(input);
 
         if is_key_pressed(KeyCode::Escape) {
-            return StateAction::Push(Box::new(InGameMenu::new()));
+            return Transition::Push(Box::new(InGameMenu::new()));
         }
 
-        StateAction::None
+        Transition::None
+    }
+
+    fn get_id(&self) -> ViewId {
+        ViewId::Game
+    }
+
+    fn shadow_update(&mut self, ctx: &mut AppContext) {
+        // If the server is present, we update game state so that the game doesn't
+        // freeze even if it is overlayed.
+        // If the server is not present, that's fine, because the app frame above us
+        // should handle that, or we will when we come back to focus.
+        if let Some(server) = ctx.server.as_mut() {
+            server.tick();
+            self.game_engine.sync_state(server.get_tick());
+        }
     }
 }
 
@@ -119,8 +142,8 @@ impl InGameMenu {
     }
 }
 
-impl AppState for InGameMenu {
-    fn draw(&mut self) {
+impl View for InGameMenu {
+    fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = screen_width() / 2.;
         let default_text_params = TextParams {
             font_size: 30,
@@ -147,23 +170,27 @@ impl AppState for InGameMenu {
             .poll();
     }
 
-    fn update(&mut self) -> StateAction {
+    fn update(&mut self, _ctx: &mut AppContext) -> Transition {
         if self.resume_clicked {
-            return StateAction::Pop(1);
+            return Transition::Pop;
         }
 
         if self.quit_clicked {
-            return StateAction::Pop(3);
+            return Transition::PopUntil(ViewId::RoomMenu);
         }
 
         if is_key_pressed(KeyCode::Escape) {
-            return StateAction::Pop(1);
+            return Transition::Pop;
         }
 
-        StateAction::None
+        Transition::None
     }
 
-    fn draw_previous(&self) -> bool {
+    fn get_id(&self) -> ViewId {
+        ViewId::InGameMenu
+    }
+
+    fn is_overlay(&self) -> bool {
         true
     }
 }
