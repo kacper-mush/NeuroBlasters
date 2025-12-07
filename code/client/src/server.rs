@@ -14,9 +14,7 @@ pub(crate) struct Server {
     inputs: HashMap<PlayerId, InputPayload>,
     bots: Vec<(PlayerId, BotAgent)>,
 }
-pub(crate) enum ServerError {
-    Error,
-}
+pub(crate) struct ServerError;
 
 impl Server {
     pub fn new() -> Self {
@@ -55,7 +53,7 @@ impl Server {
             ],
         };
 
-        let spawn_points = vec![
+        let spawn_points = [
             (460.0, 822.0),
             (634.0, 818.0),
             (851.0, 823.0),

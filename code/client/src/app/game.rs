@@ -11,10 +11,7 @@ pub(crate) struct Game {
 impl Game {
     /// tries to create a new game. If server responds, it will succeed
     pub fn try_new(ctx: &mut AppContext) -> Option<Self> {
-        if ctx.server.is_none() {
-            return None;
-        }
-        let server = ctx.server.as_ref().unwrap();
+        let server = ctx.server.as_ref()?;
 
         let map = server.get_map();
         Some(Self {

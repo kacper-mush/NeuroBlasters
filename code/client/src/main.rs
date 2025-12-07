@@ -1,7 +1,7 @@
+#![allow(dead_code)] // For development
 use macroquad::miniquad::window::{set_window_position, set_window_size};
 
 mod app;
-mod game;
 mod server;
 mod ui;
 
