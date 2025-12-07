@@ -103,10 +103,15 @@ pub struct MapDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct GameStateSnapshot {
-    pub players: Vec<PlayerState>,
-    pub projectiles: Vec<Projectile>,
-    pub time_remaining: f32,
+pub enum GameStateSnapshot {
+    Waiting {
+        players: Vec<String>
+    },
+    Playing {
+        players: Vec<PlayerState>,
+        projectiles: Vec<Projectile>,
+        time_remaining: f32,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]

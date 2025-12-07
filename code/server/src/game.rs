@@ -1,11 +1,10 @@
 use std::collections::VecDeque;
-use common::protocol::{GameCode, PlayerId, InputPayload, MapDefinition};
+use common::protocol::{GameCode, InputPayload, MapDefinition, GameEvent};
 use common::game::engine::GameEngine; // Your existing physics engine
 
-// --- 1. THE STATES ---
 pub enum GameState {
     Waiting {
-        players: Vec<PlayerId>,
+        players: Vec<(ClientId, String)>,
     },
     Battle {
         // The engine owns the players and physics state now
@@ -16,31 +15,18 @@ pub enum GameState {
     },
 }
 
-// --- 2. THE INPUTS (Commands) ---
 pub enum GameCommand {
     Join(PlayerId),
     Leave(PlayerId),
-    StartGame(PlayerId), // Only valid in Waiting
+    StartGame(PlayerId),
     Input(PlayerId, InputPayload),
-}
-
-// --- 3. THE OUTPUTS (Events) ---
-#[derive(Clone)]
-pub enum GameEvent {
-    PlayerJoined(PlayerId),
-    PlayerLeft(PlayerId),
-    GameStarted(MapDefinition), // Clients need the map to load the scene
-    GameEnded(common::protocol::Team),
 }
 
 pub struct Game {
     pub code: GameCode,
     pub state: GameState,
     
-    // The "Input Pipe"
     pub command_queue: VecDeque<GameCommand>,
-    
-    // The "Output Pipe" (Cleared every tick)
     pub outgoing_events: Vec<GameEvent>,
 }
 
