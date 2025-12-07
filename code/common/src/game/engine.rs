@@ -1,5 +1,5 @@
 use super::{apply_player_physics, handle_shooting, resolve_combat, update_projectiles};
-use crate::net::protocol::{GameStateSnapshot, InputPayload, KillEvent, MapDefinition, PlayerId};
+use crate::net::protocol::{GameStateSnapshot, InputPayload, KillEvent, MapDefinition, ClientId};
 use glam::Vec2;
 use std::collections::HashMap;
 
@@ -28,7 +28,7 @@ impl GameEngine {
     /// * `inputs`: A map of inputs for each player. If a player has no input in this map, they stay still.
     ///
     /// Returns a list of kills that happened during this tick.
-    pub fn tick(&mut self, dt: f32, inputs: &HashMap<PlayerId, InputPayload>) -> Vec<KillEvent> {
+    pub fn tick(&mut self, dt: f32, inputs: &HashMap<ClientId, InputPayload>) -> Vec<KillEvent> {
         for player in &mut self.state.players {
             let default_input = InputPayload {
                 move_axis: Vec2::ZERO,

@@ -1,45 +1,48 @@
 use bincode::{Decode, Encode};
 use glam::Vec2;
-use thiserror::Error;
-
-// Message enums -------------------------------------------------------------
 
 pub const API_VERSION: ApiVersion = ApiVersion(2);
 
-/// All messages that the client can send to the server.
+// --- MESSAGES ---
+
+/// Messages from Client -> Server
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum ClientMessage {
     Handshake { api_version: u16, nickname: String },
     CreateGame,
     JoinGame { game_code: String },
     LeaveGame,
+    /// Player input for the current game tick
+    GameInput(InputPayload), 
 }
+
+/// Messages from Server -> Client
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub enum ServerMessage {
+    ConnectOk,
+    /// Response to CreateGame or JoinGame
+    GameJoined { game_code: GameCode },
+    /// The authoritative world state + events
+    GameUpdate(GameUpdate),
+    /// Something went wrong (e.g., "Game Full")
+    Error(String),
+}
+
+// --- IDENTIFIERS ---
 
 /// Protocol / API version negotiated at connect time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct ApiVersion(pub u16);
 
-/// Unique identifier of a client session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct SessionId(pub u64);
-
 /// Human–facing lobby code used to join games.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct GameCode(pub String);
-
-/// Simulation tick identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct TickId(pub u64);
-
-/// Player identifier used across the session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct PlayerId(pub u64);
 
 /// Low–level client identifier (transport / connection).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct ClientId(pub u64);
 
-// Additional Game Entities --------------------------------------------------
+// --- GAME ENTITIES ---
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct RectWall {
@@ -57,7 +60,7 @@ pub enum Team {
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct PlayerState {
-    pub id: PlayerId,
+    pub id: ClientId,
     pub team: Team,
     #[bincode(with_serde)]
     pub position: Vec2,
@@ -73,7 +76,7 @@ pub struct PlayerState {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct Projectile {
     pub id: u64,
-    pub owner_id: PlayerId,
+    pub owner_id: ClientId,
     #[bincode(with_serde)]
     pub position: Vec2,
     #[bincode(with_serde)]
@@ -81,9 +84,8 @@ pub struct Projectile {
     pub radius: f32,
 }
 
-// Payload types -------------------------------------------------------------
+// --- PAYLOADS ---
 
-/// Logical input payload sent from the client for a single tick.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct InputPayload {
     #[bincode(with_serde)]
@@ -93,7 +95,6 @@ pub struct InputPayload {
     pub shoot: bool,
 }
 
-/// Static map definition.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct MapDefinition {
     pub width: f32,
@@ -101,7 +102,6 @@ pub struct MapDefinition {
     pub walls: Vec<RectWall>,
 }
 
-/// Authoritative per–tick game state snapshot.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct GameStateSnapshot {
     pub players: Vec<PlayerState>,
@@ -115,9 +115,25 @@ pub struct GameUpdate {
     pub events: Vec<GameEvent>,
 }
 
-// Tells who killed whom.
+/// One-shot events for the UI/Audio (not persistent state)
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub enum GameEvent {
+    PlayerJoined(ClientId),
+    PlayerLeft(ClientId),
+    GameStarted(MapDefinition),
+    GameEnded(Team),
+    Kill(KillEvent),
+}
+
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct KillEvent {
-    pub killer_id: PlayerId,
-    pub victim_id: PlayerId,
+    pub killer_id: ClientId,
+    pub victim_id: ClientId,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub enum ServerError {
+    General,
+    GameFull,
+    InvalidState,
 }

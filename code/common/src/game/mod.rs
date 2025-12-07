@@ -299,7 +299,7 @@ pub fn check_round_winner(players: &[PlayerState]) -> Option<Team> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{PlayerId, RectWall, Team};
+    use crate::protocol::{RectWall, Team, ClientId};
     use glam::Vec2;
     #[allow(deprecated)]
     use rand::rngs::mock::StepRng; // Or use a seeded StdRng
@@ -307,7 +307,7 @@ mod tests {
     // --- Helper to create dummy players ---
     fn make_player(id: u64, team: Team, pos: Vec2) -> PlayerState {
         PlayerState {
-            id: PlayerId(id),
+            id: ClientId(id),
             team,
             position: pos,
             velocity: Vec2::ZERO,
@@ -374,7 +374,7 @@ mod tests {
 
         let mut projectiles = vec![Projectile {
             id: 99,
-            owner_id: PlayerId(1),             // Owned by P1
+            owner_id: ClientId(1),             // Owned by P1
             position: Vec2::new(200.0, 200.0), // Hits P2 immediately
             velocity: Vec2::ZERO,
             radius: 5.0,
@@ -385,11 +385,11 @@ mod tests {
 
         // Assertions
         assert_eq!(kills.len(), 1, "Should generate 1 kill event");
-        assert_eq!(kills[0].victim_id, PlayerId(2));
-        assert_eq!(kills[0].killer_id, PlayerId(1));
+        assert_eq!(kills[0].victim_id, ClientId(2));
+        assert_eq!(kills[0].killer_id, ClientId(1));
 
         assert_eq!(players.len(), 1, "Dead player should be removed from list");
-        assert_eq!(players[0].id, PlayerId(1), "Survivor should be Player 1");
+        assert_eq!(players[0].id, ClientId(1), "Survivor should be Player 1");
 
         assert!(
             projectiles.is_empty(),
@@ -409,7 +409,7 @@ mod tests {
 
         let mut projectiles = vec![Projectile {
             id: 88,
-            owner_id: PlayerId(1),
+            owner_id: ClientId(1),
             position: Vec2::new(50.0, 50.0), // Hits teammate
             velocity: Vec2::ZERO,
             radius: 5.0,

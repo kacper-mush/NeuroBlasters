@@ -1,13 +1,18 @@
-mod connection;
 mod client;
-use client::{ClientState, ClientEvent, GameManager};
+mod game;
+mod game_manager;
 
 use std::{collections::HashMap, net::SocketAddr, net::UdpSocket, time::Duration, time::Instant};
 
+use client::{ClientEvent, ClientState};
 use common::codec::{decode_client_message, encode_server_message};
-use common::protocol::{ClientMessage, ConnectError, ServerError, ServerMessage};
-use connection::SessionInfo;
-use rand::{SeedableRng, rngs::StdRng};
+use common::protocol::{
+    ClientMessage, GameCode, GameUpdate, ServerMessage,
+};
+use game::{Game, GameCommand, GameState}; // Import our Game FSM
+use game_manager::GameManager;
+
+
 use renet::{ClientId, ConnectionConfig, RenetServer, ServerEvent};
 use renet_netcode::{NetcodeServerTransport, ServerAuthentication, ServerConfig};
 use tokio::time::{self, MissedTickBehavior};
@@ -21,6 +26,8 @@ const RELIABLE_CHANNEL_ID: u8 = 0;
 const TICK_INTERVAL: Duration = Duration::from_micros(33_333); // ≈30 Hz
 
 type AppResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+// --- SERVER APP ---
 
 #[tokio::main]
 async fn main() -> AppResult<()> {
@@ -39,7 +46,7 @@ async fn main() -> AppResult<()> {
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                info!("received Ctrl+C, shutting down immediately");
+                info!("received Ctrl+C, shutting down");
                 break;
             }
             _ = ticker.tick() => {
@@ -65,9 +72,12 @@ fn init_tracing() {
 struct ServerApp {
     server: RenetServer,
     transport: NetcodeServerTransport,
-    /// Only authenticated (handshaken) clients are stored here.
+    
+    // State
     client_states: HashMap<ClientId, ClientState>,
-    game_states: HashMap<GameId, GameState>,
+    game_manager: GameManager,
+    
+    last_tick: Instant,
 }
 
 impl ServerApp {
@@ -79,7 +89,6 @@ impl ServerApp {
             max_clients: MAX_CLIENTS,
             protocol_id: PROTOCOL_ID,
             public_addresses: vec![public_addr],
-            // TODO: Add authentication.
             authentication: ServerAuthentication::Unsecure,
         };
 
@@ -90,8 +99,8 @@ impl ServerApp {
         Ok(Self {
             server,
             transport,
-            sessions: HashMap::new(),
-            rng: StdRng::from_os_rng(),
+            client_states: HashMap::new(),
+            game_manager: GameManager::new(),
             last_tick: Instant::now(),
         })
     }
@@ -102,126 +111,183 @@ impl ServerApp {
 
     fn tick(&mut self) -> AppResult<()> {
         let now = Instant::now();
-        let delta = now - self.last_tick;
+        let dt = now.duration_since(self.last_tick).as_secs_f32();
         self.last_tick = now;
 
-        // Recieve packets from clients.
-        self.transport.update(delta, &mut self.server)?;
-        // Advance the reliable-UDP simulation.
-        self.server.update(delta);
-        self.process_events();
-        self.process_messages();
-        // Send the queued packets to the clients.
+        // 1. NETWORK: Receive packets
+        self.transport.update(Duration::from_secs_f32(dt), &mut self.server)?;
+        self.server.update(Duration::from_secs_f32(dt));
+
+        // 2. LOGIC: Process connections and messages
+        self.process_net_events();
+        self.process_client_messages();
+
+        // 3. GAMEPLAY: Tick all active games
+        self.tick_games(dt);
+
+        // 4. NETWORK: Send packets
         self.transport.send_packets(&mut self.server);
 
         Ok(())
     }
 
     fn shutdown(&mut self) {
-        info!("disconnecting all clients");
         self.transport.disconnect_all(&mut self.server);
-        self.sessions.clear();
     }
 
-fn process_events(&mut self) {
+    // --- 1. Connection Handling ---
+
+    fn process_net_events(&mut self) {
         while let Some(event) = self.server.get_event() {
             match event {
                 ServerEvent::ClientConnected { client_id } => {
-                    info!(client_id = %client_id, "Physical connection established");
-                    // Initialize new client in Handshaking state
+                    info!(%client_id, "Client connected");
                     self.client_states.insert(client_id, ClientState::default());
                 }
                 ServerEvent::ClientDisconnected { client_id, reason } => {
-                    info!(client_id = %client_id, ?reason, "Physical disconnect");
-                    // TODO: Clean up game if they were in one
+                    info!(%client_id, ?reason, "Client disconnected");
+                    // If this client was in a game, he will now be idle.
                     self.client_states.remove(&client_id);
                 }
             }
         }
     }
 
-    /// Deserialize and handle client messages.
-    fn process_messages(&mut self) {
+    // --- 2. Message Handling ---
+
+    fn process_client_messages(&mut self) {
         let client_ids = self.server.clients_id();
         for client_id in client_ids {
             while let Some(bytes) = self.server.receive_message(client_id, RELIABLE_CHANNEL_ID) {
-                let result = decode_client_message(bytes.as_ref())
-                    .map_err(|err| {
-                        debug!(client_id = %client_id, %err, "failed to decode client message");
-                        ServerError::General
-                    })
-                    .and_then(|msg| self.route_client_message(client_id, msg));
-
-                if let Err(err) = result {
-                    self.send_error(client_id, err);
-                }
-            }
-        }
-    }
-
-    fn route_client_message(
-            &mut self,
-            client_id: ClientId,
-            message: ClientMessage,
-        ) -> Result<(), ServerError> {
-            
-            // 1. Get the Client's current state
-            // If they aren't in the map, something went wrong with connection events.
-            let Some(current_state) = self.client_states.get(&client_id).cloned() else {
-                return Err(ServerError::General);
-            };
-
-            // 2. DECIDE: logic check (Validation)
-            let decision = client::handle_message(
-                &current_state, 
-                message, 
-                &mut self.game_manager
-            );
-
-            match decision {
-                Ok(Some(event)) => {
-                    // 3. APPLY: Update the state
-                    let new_state = current_state.apply(event.clone());
-                    self.client_states.insert(client_id, new_state);
-                    
-                    // 4. RESPOND: Tell the client what happened
-                    // You might want to convert ClientEvent -> ServerMessage here.
-                    // For example:
-                    match event {
-                        ClientEvent::HandshakeCompleted { .. } => {
-                            // send ServerMessage::ConnectOk...
-                        }
-                        ClientEvent::GameJoined { .. } => {
-                            // send ServerMessage::GameJoinOk...
-                        }
-                        _ => {}
+                // Decode
+                let msg = match decode_client_message(bytes.as_ref()) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        debug!(%client_id, %e, "Failed to decode message");
+                        continue;
                     }
-                },
-                Ok(None) => {
-                    // Logic valid, but no state change (e.g. Chat)
-                },
-                Err(error_msg) => {
-                    // Logic failed (Game Full, Wrong Password, etc)
-                    // send ServerMessage::Error(error_msg)...
+                };
+
+                // Route
+                if let Err(e) = self.route_message(client_id, msg) {
+                    self.send_message(client_id, ServerMessage::Error(e.to_string()));
                 }
             }
-
-            Ok(())
         }
     }
 
-    fn send_error(&mut self, client_id: ClientId, error: ServerError) {
-        self.send_message(client_id, ServerMessage::Error(error));
+    fn route_message(&mut self, client_id: ClientId, msg: ClientMessage) -> Result<(), String> {
+        // Special Case: GameInput bypasses the heavyweight ClientState DFA for performance
+        if let ClientMessage::GameInput(input) = msg {
+            if let Some(ClientState::InGame { game_code, .. }) = self.client_states.get(&client_id) {
+                if let Some(game) = self.game_manager.games.get_mut(game_code) {
+                    game.command_queue.push_back(GameCommand::Input(*client_id, input));
+                }
+            }
+            return Ok(());
+        }
+
+        // Standard DFA handling for non-input messages
+        let state = self.client_states.get(&client_id).ok_or("No state")?.clone();
+        
+        // A. DECIDE (Validation)
+        let decision = client::handle_message(&state, msg, &mut self.game_manager);
+
+        match decision {
+            Ok(Some(event)) => {
+                // B. APPLY (State Transition)
+                let new_state = state.apply(event.clone());
+
+                // Update mapping if handshake just finished
+                if let ClientEvent::HandshakeCompleted { client_id, .. } = event {
+                    self.player_to_client.insert(client_id, client_id);
+                    // Send ConnectOK
+                    self.send_message(client_id, ServerMessage::ConnectOk { session_id: SessionId(0) });
+                }
+                // Ack Game Join
+                if let ClientEvent::GameJoined { game_code } | ClientEvent::GameCreated { game_code } = &event {
+                    self.send_message(client_id, ServerMessage::GameJoined { game_code: game_code.clone() });
+                }
+
+                self.client_states.insert(client_id, new_state);
+                Ok(())
+            }
+            Ok(None) => Ok(()), // Valid message, no state change
+            Err(e) => Err(e),   // Validation failed
+        }
+    }
+
+    // --- 3. Game Loop ---
+
+    fn tick_games(&mut self, dt: f32) {
+        // Iterate over all games
+        for game in self.game_manager.games.values_mut() {
+            // Run the simulation
+            game.tick(dt);
+
+            // If anything interesting happened (events), broadcast it
+            if !game.outgoing_events.is_empty() {
+                // We need to construct a snapshot for the clients
+                let update = match &game.state {
+                    GameState::Battle { engine } => GameUpdate {
+                        state: engine.state.clone(), // In real app, avoid full clone
+                        events: game.outgoing_events.clone()
+                            .into_iter()
+                            .filter_map(|e| self.map_game_event(e))
+                            .collect(),
+                    },
+                    // If waiting, we send empty snapshots but important events (PlayerJoined)
+                    GameState::Waiting { .. } => GameUpdate {
+                        state: GameStateSnapshot {
+                            players: vec![],
+                            projectiles: vec![],
+                            time_remaining: 0.0,
+                        },
+                        events: game.outgoing_events.clone()
+                            .into_iter()
+                            .filter_map(|e| self.map_game_event(e))
+                            .collect(),
+                    },
+                    _ => continue,
+                };
+
+                // Broadcast to all players in this game
+                // We find the players by checking who is in the game logic
+                // (Optimally Game struct should keep a list of connected IDs)
+                let players_in_game = self.get_players_in_game(game);
+                
+                for pid in players_in_game {
+                    if let Some(&cid) = self.player_to_client.get(&pid) {
+                        self.send_message(cid, ServerMessage::GameUpdate(update.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    // Helper to Map Internal GameEvent -> Protocol GameEvent
+    fn map_game_event(&self, e: game::GameEvent) -> Option<common::protocol::GameEvent> {
+        use common::protocol::GameEvent as ProtoEvent;
+        use game::GameEvent as InternalEvent;
+        match e {
+            InternalEvent::PlayerJoined(pid) => Some(ProtoEvent::PlayerJoined(pid)),
+            InternalEvent::PlayerLeft(pid) => Some(ProtoEvent::PlayerLeft(pid)),
+            InternalEvent::GameStarted(map) => Some(ProtoEvent::GameStarted(map)),
+            InternalEvent::GameEnded(team) => Some(ProtoEvent::GameEnded(team)),
+        }
+    }
+
+    fn get_players_in_game(&self, game: &Game) -> Vec<PlayerId> {
+        match &game.state {
+            GameState::Waiting { players } => players.clone(),
+            GameState::Battle { engine } => engine.state.players.iter().map(|p| p.id).collect(),
+            GameState::Ended { .. } => vec![], 
+        }
     }
 
     fn send_message(&mut self, client_id: ClientId, message: ServerMessage) {
-        match encode_server_message(&message) {
-            Ok(payload) => self
-                .server
-                .send_message(client_id, RELIABLE_CHANNEL_ID, payload),
-            Err(err) => {
-                error!(client_id = %client_id, %err, ?message, "failed to encode server message");
-            }
+        if let Ok(payload) = encode_server_message(&message) {
+            self.server.send_message(client_id, RELIABLE_CHANNEL_ID, payload);
         }
     }
 }
