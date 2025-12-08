@@ -2,7 +2,7 @@ pub mod pathfinding;
 
 use self::pathfinding::find_path_a_star;
 use crate::game::PROJECTILE_SPEED;
-use crate::net::protocol::{GameStateSnapshot, InputPayload, MapDefinition, PlayerState};
+use crate::net::protocol::{InputPayload, MapDefinition, Player, Projectile};
 use glam::Vec2;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -19,8 +19,9 @@ pub enum BotDifficulty {
 
 /// Everything a bot is allowed to know to make a decision.
 pub struct BotContext<'a> {
-    pub me: &'a PlayerState,
-    pub world: &'a GameStateSnapshot,
+    pub me: &'a Player,
+    pub players: &'a Vec<Player>,
+    pub projectiles: &'a Vec<Projectile>,
     pub map: &'a MapDefinition,
     pub dt: f32,
     pub rng: &'a mut StdRng,
@@ -63,14 +64,16 @@ impl BotAgent {
     /// The Server calls this once per tick for every bot.
     pub fn generate_input(
         &mut self,
-        me: &PlayerState,
-        world: &GameStateSnapshot,
+        me: &Player,
+        players: &Vec<Player>,
+        projectiles: &Vec<Projectile>,
         map: &MapDefinition,
         dt: f32,
     ) -> InputPayload {
         let mut ctx = BotContext {
             me,
-            world,
+            players,
+            projectiles,
             map,
             dt,
             rng: &mut self.rng,
@@ -82,9 +85,8 @@ impl BotAgent {
 // ---- Helper functions for scripted behaviours ----
 
 /// Finds the closest living enemy to the bot.
-fn find_closest_enemy<'a>(ctx: &BotContext<'a>) -> Option<&'a PlayerState> {
-    ctx.world
-        .players
+fn find_closest_enemy<'a>(ctx: &BotContext<'a>) -> Option<&'a Player> {
+    ctx.players
         .iter()
         .filter(|p| {
             p.health > 0.0                  // Alive
@@ -128,7 +130,7 @@ fn has_line_of_sight(ctx: &BotContext, p1: Vec2, p2: Vec2) -> bool {
         // Check Players
         // We don't want to shoot if ANY player (teammate or enemy) is in the way.
         // Obviously, we ignore the shooter (ctx.me) and the target (at p2).
-        for player in &ctx.world.players {
+        for player in ctx.players {
             if player.id == ctx.me.id {
                 continue; // Ignore self
             }
@@ -232,7 +234,7 @@ impl ScriptedPolicy {
         // (Same as before: Scan visible, shoot closest visible, else idle)
         let mut visible_enemies = Vec::new();
 
-        for p in &ctx.world.players {
+        for p in ctx.players {
             if p.health > 0.0 && p.id != ctx.me.id && p.team != ctx.me.team {
                 let dist_sq = ctx.me.position.distance_squared(p.position);
                 if has_line_of_sight(ctx, ctx.me.position, p.position) {

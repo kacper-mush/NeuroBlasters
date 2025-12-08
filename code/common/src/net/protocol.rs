@@ -1,3 +1,5 @@
+pub use renet::ClientId;
+
 use bincode::{Decode, Encode};
 use glam::Vec2;
 
@@ -8,10 +10,11 @@ pub const API_VERSION: ApiVersion = ApiVersion(2);
 /// Messages from Client -> Server
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum ClientMessage {
-    Handshake { api_version: u16, nickname: String },
+    Handshake { api_version: ApiVersion, nickname: String },
     CreateGame,
-    JoinGame { game_code: String },
+    JoinGame { game_code: GameCode },
     LeaveGame,
+    StartGame,
     /// Player input for the current game tick
     GameInput(InputPayload), 
 }
@@ -19,7 +22,7 @@ pub enum ClientMessage {
 /// Messages from Server -> Client
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum ServerMessage {
-    ConnectOk,
+    Ok,
     /// Response to CreateGame or JoinGame
     GameJoined { game_code: GameCode },
     /// The authoritative world state + events
@@ -38,10 +41,6 @@ pub struct ApiVersion(pub u16);
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct GameCode(pub String);
 
-/// Low–level client identifier (transport / connection).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct ClientId(pub u64);
-
 // --- GAME ENTITIES ---
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
@@ -59,7 +58,7 @@ pub enum Team {
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct PlayerState {
+pub struct Player {
     pub id: ClientId,
     pub team: Team,
     #[bincode(with_serde)]
@@ -95,7 +94,7 @@ pub struct InputPayload {
     pub shoot: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode, Default)]
 pub struct MapDefinition {
     pub width: f32,
     pub height: f32,
@@ -104,18 +103,19 @@ pub struct MapDefinition {
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum GameStateSnapshot {
-    Waiting {
-        players: Vec<String>
-    },
-    Playing {
-        players: Vec<PlayerState>,
+    Waiting,
+    Battle {
+        players: Vec<Player>,
         projectiles: Vec<Projectile>,
-        time_remaining: f32,
+    },
+    Ended {
+        winner: Team
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct GameUpdate {
+    pub players: Vec<(ClientId, String)>,
     pub state: GameStateSnapshot,
     pub events: Vec<GameEvent>,
 }
@@ -123,8 +123,8 @@ pub struct GameUpdate {
 /// One-shot events for the UI/Audio (not persistent state)
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum GameEvent {
-    PlayerJoined(ClientId),
-    PlayerLeft(ClientId),
+    PlayerJoined(String),
+    PlayerLeft(String),
     GameStarted(MapDefinition),
     GameEnded(Team),
     Kill(KillEvent),

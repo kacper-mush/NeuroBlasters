@@ -145,6 +145,7 @@ dependencies = [
  "bincode",
  "glam",
  "rand",
+ "renet",
  "serde",
  "thiserror",
 ]

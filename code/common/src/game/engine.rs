@@ -1,22 +1,27 @@
-use super::{apply_player_physics, handle_shooting, resolve_combat, update_projectiles};
-use crate::net::protocol::{GameStateSnapshot, InputPayload, KillEvent, MapDefinition, ClientId};
+use super::{apply_player_physics, handle_shooting, resolve_combat, update_projectiles, check_round_winner};
+use crate::net::protocol::{InputPayload, KillEvent, MapDefinition, Player, Projectile, Team};
 use glam::Vec2;
 use std::collections::HashMap;
 
+type PlayerId = u64;
+
 pub struct GameEngine {
-    pub state: GameStateSnapshot,
+    pub players: Vec<Player>,
+    pub projectiles: Vec<Projectile>,
     pub map: MapDefinition,
     projectile_id_counter: u64,
+}
+
+pub struct GameTickResult {
+    pub kills: Vec<KillEvent>,
+    pub winner: Option<Team>,
 }
 
 impl GameEngine {
     pub fn new(map: MapDefinition) -> Self {
         Self {
-            state: GameStateSnapshot {
-                players: Vec::new(),
-                projectiles: Vec::new(),
-                time_remaining: 0.0,
-            },
+            players: Vec::new(),
+            projectiles: Vec::new(),
             map,
             projectile_id_counter: 0,
         }
@@ -28,8 +33,8 @@ impl GameEngine {
     /// * `inputs`: A map of inputs for each player. If a player has no input in this map, they stay still.
     ///
     /// Returns a list of kills that happened during this tick.
-    pub fn tick(&mut self, dt: f32, inputs: &HashMap<ClientId, InputPayload>) -> Vec<KillEvent> {
-        for player in &mut self.state.players {
+    pub fn tick(&mut self, dt: f32, inputs: &HashMap<PlayerId, InputPayload>) -> GameTickResult {
+        for player in &mut self.players {
             let default_input = InputPayload {
                 move_axis: Vec2::ZERO,
                 aim_pos: player.position,
@@ -43,29 +48,33 @@ impl GameEngine {
 
             // We use the engine's internal counter to assign IDs to new projectiles.
             if let Some(proj) = handle_shooting(player, input, dt, self.projectile_id_counter) {
-                self.state.projectiles.push(proj);
+                self.projectiles.push(proj);
                 self.projectile_id_counter += 1;
             }
         }
 
         // Process Projectiles (Move & Collide with walls)
-        update_projectiles(&mut self.state.projectiles, &self.map, dt);
+        update_projectiles(&mut self.projectiles, &self.map, dt);
 
         // Resolve Combat (Projectiles hitting Players)
         // This function modifies health, removes dead players/bullets, and returns KillEvents.
-        resolve_combat(&mut self.state.players, &mut self.state.projectiles)
+        let kills = resolve_combat(&mut self.players, &mut self.projectiles);
+        let winner = check_round_winner(&self.players);
+
+        GameTickResult { kills, winner }
     }
 
-    /// Overwrites the current state with a snapshot.
-    /// Used by the Client to snap to the Server's authoritative state (Reconciliation).
-    pub fn sync_state(&mut self, snapshot: GameStateSnapshot) {
-        self.state = snapshot;
-        // Note: If visual smoothness is required later, we might want to
-        // interpolate positions here instead of hard-overwriting.
-    }
+    // /// Overwrites the current state with a snapshot.
+    // /// Used by the Client to snap to the Server's authoritative state (Reconciliation).
+    // pub fn sync_state(&mut self, snapshot: GameStateSnapshot) {
+    //     self.state = snapshot;
+    //     // Note: If visual smoothness is required later, we might want to
+    //     // interpolate positions here instead of hard-overwriting.
+    // }
 
     /// Helper to inject a player (e.g. on spawn)
-    pub fn add_player(&mut self, player: crate::protocol::PlayerState) {
-        self.state.players.push(player);
+    pub fn add_player(&mut self, _player: PlayerId) {
+        // TODO: default init for player
+        // self.players.push(player);
     }
 }

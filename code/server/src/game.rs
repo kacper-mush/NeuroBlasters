@@ -1,130 +1,180 @@
-use std::collections::VecDeque;
-use common::protocol::{GameCode, InputPayload, MapDefinition, GameEvent};
-use common::game::engine::GameEngine; // Your existing physics engine
+use common::game::engine::{GameEngine, GameTickResult};
+use common::protocol::{
+    ClientId, GameCode, GameEvent, GameStateSnapshot, InputPayload, MapDefinition, Player,
+    Projectile, Team,
+};
+use std::collections::{HashMap, VecDeque};
 
-pub enum GameState {
-    Waiting {
-        players: Vec<(ClientId, String)>,
-    },
-    Battle {
-        // The engine owns the players and physics state now
-        engine: GameEngine, 
-    },
-    Ended {
-        winner: common::protocol::Team,
-    },
-}
-
-pub enum GameCommand {
-    Join(PlayerId),
-    Leave(PlayerId),
-    StartGame(PlayerId),
-    Input(PlayerId, InputPayload),
-}
+type Players = HashMap<ClientId, String>;
 
 pub struct Game {
     pub code: GameCode,
+    pub players: Players,
     pub state: GameState,
-    
+
     pub command_queue: VecDeque<GameCommand>,
     pub outgoing_events: Vec<GameEvent>,
+}
+
+pub enum GameState {
+    Waiting,
+    Battle(BattleData),
+    Ended(EndedData),
+}
+
+pub enum GameCommand {
+    Join(ClientId, String),
+    Leave(ClientId),
+    StartGame(ClientId),
+    Input(ClientId, InputPayload),
+    Tick(f32),
+}
+
+struct BattleData {
+    engine: GameEngine,
+    inputs: HashMap<ClientId, InputPayload>,
+}
+
+impl BattleData {
+    pub fn new(map: MapDefinition, players: Players) -> Self {
+        let mut engine = GameEngine::new(map.clone());
+
+        for (client_id, _) in players {
+            engine.add_player(client_id);
+        }
+
+        Self {
+            engine,
+            inputs: HashMap::new(),
+        }
+    }
+
+    pub fn process_input(&mut self, client_id: ClientId, input: InputPayload) {
+        self.inputs.insert(client_id, input);
+    }
+
+    pub fn tick(&mut self, dt: f32) -> GameTickResult {
+        let result = self.engine.tick(dt, &self.inputs);
+        self.inputs.clear();
+        result
+    }
+
+    pub fn get_inputs(&self) -> &HashMap<ClientId, InputPayload> {
+        &self.inputs
+    }
+
+    pub fn get_data(&self) -> (Vec<Player>, Vec<Projectile>) {
+        (self.engine.players.clone(), self.engine.projectiles.clone())
+    }
+}
+
+struct EndedData {
+    winner: Team,
+}
+
+impl EndedData {
+    pub fn get_data(&self) -> Team {
+        self.winner
+    }
+}
+
+impl GameState {
+    pub fn get_snapshot(&self) -> GameStateSnapshot {
+        match self {
+            GameState::Waiting => GameStateSnapshot::Waiting,
+
+            GameState::Battle(battle_data) => {
+                let (players, projectiles) = battle_data.get_data();
+                GameStateSnapshot::Battle {
+                    players,
+                    projectiles,
+                }
+            }
+
+            GameState::Ended(ended_data) => {
+                let winner = ended_data.get_data();
+                GameStateSnapshot::Ended { winner }
+            }
+        }
+    }
 }
 
 impl Game {
     pub fn new(code: GameCode) -> Self {
         Self {
             code,
-            state: GameState::Waiting { players: Vec::new() },
+            players: HashMap::new(),
+            state: GameState::Waiting,
             command_queue: VecDeque::new(),
             outgoing_events: Vec::new(),
         }
     }
 
     pub fn tick(&mut self, dt: f32) {
-        // A. Clear previous tick's events
         self.outgoing_events.clear();
-
-        // B. Process Input Commands
-        while let Some(cmd) = self.command_queue.pop_front() {
-            self.handle_command(cmd);
-        }
-
-        // C. Update Logic (The Simulation)
-        self.update_simulation(dt);
+        self.handle_command(GameCommand::Tick(dt));
     }
 
-    fn handle_command(&mut self, cmd: GameCommand) {
+    pub fn handle_command(&mut self, cmd: GameCommand) -> Result<(), String> {
         match (&mut self.state, cmd) {
-            // --- WAITING LOGIC ---
-            (GameState::Waiting { players }, GameCommand::Join(pid)) => {
-                if !players.contains(&pid) {
-                    players.push(pid);
-                    self.outgoing_events.push(GameEvent::PlayerJoined(pid));
+            (GameState::Waiting, GameCommand::Join(client_id, nickname)) => {
+                if self.players.contains_key(&client_id) {
+                    Err("Player already in game.".to_string())
+                } else {
+                    self.players.insert(client_id, nickname.clone());
+                    self.outgoing_events.push(GameEvent::PlayerJoined(nickname));
+                    Ok(())
                 }
             }
-            
-            (GameState::Waiting { players }, GameCommand::Leave(pid)) => {
-                if let Some(pos) = players.iter().position(|x| *x == pid) {
-                    players.remove(pos);
-                    self.outgoing_events.push(GameEvent::PlayerLeft(pid));
-                }
-            }
-
-            // TRANSITION: Waiting -> Battle
-            (GameState::Waiting { players }, GameCommand::StartGame(_requester)) => {
-                if players.len() >= 2 { // Min players check
-                    // 1. Initialize the Engine
-                    let map = MapDefinition::default(); // Load from file in reality
-                    let mut engine = GameEngine::new(map.clone());
-                    
-                    // 2. Add existing players to the engine
-                    for &p_id in players.iter() {
-                         // You'll need a helper to create default PlayerState (spawn point etc)
-                         // engine.add_player(create_player_state(p_id));
+            (GameState::Waiting, GameCommand::Leave(client_id)) | (GameState::Ended(_), GameCommand::Leave(client_id)) => {
+                match self.players.remove(&client_id) {
+                    Some(nickname) => {
+                        self.outgoing_events.push(GameEvent::PlayerLeft(nickname));
+                        Ok(())
                     }
-
-                    // 3. Switch State
-                    self.state = GameState::Battle { engine };
-                    
-                    // 4. Notify Clients
-                    self.outgoing_events.push(GameEvent::GameStarted(map));
+                    None => {
+                        Err("Player was not in the game.".to_string())
+                    }
                 }
             }
 
-            // --- BATTLE LOGIC ---
-            (GameState::Battle { engine }, GameCommand::Input(pid, input)) => {
-                 // Just buffer it. The engine will use it in step C.
-                 // Note: You need to modify your engine to accept an input *buffer* // rather than a snapshot if you want smooth movement, 
-                 // but for now, direct application is fine.
-            }
-            
-            (GameState::Battle { engine }, GameCommand::Leave(pid)) => {
-                // In battle, leaving means "Remove from physics"
-                // engine.remove_player(pid);
-                self.outgoing_events.push(GameEvent::PlayerLeft(pid));
+            (GameState::Waiting, GameCommand::StartGame(_requester)) => {
+                if self.players.len() < 2 {
+                    Err("At least 2 players needed to start the game".to_string())
+                } else {
+                    let map = MapDefinition::default(); // TODO: load from somewhere
+                    let battle_data = BattleData::new(map.clone(), self.players.clone());
+
+                    self.outgoing_events.push(GameEvent::GameStarted(map));
+                    self.state = GameState::Battle(battle_data);
+
+                    Ok(())
+                }
             }
 
-            // --- ENDED LOGIC ---
-            (GameState::Ended { .. }, GameCommand::Leave(pid)) => {
-                 self.outgoing_events.push(GameEvent::PlayerLeft(pid));
+            (GameState::Battle(battle_data), GameCommand::Input(client_id, input)) => {
+                battle_data.process_input(client_id, input);
+                Ok(())
             }
 
-            // Invalid commands are ignored (e.g. Input while Waiting)
-            _ => {}
-        }
-    }
+            (GameState::Battle(battle_data), GameCommand::Tick(dt)) => {
+                let result = battle_data.tick(dt);
+                let mut kill_events = result
+                    .kills
+                    .iter()
+                    .map(|kill_event| GameEvent::Kill(kill_event.clone()))
+                    .collect();
+                self.outgoing_events.append(&mut kill_events);
 
-    fn update_simulation(&mut self, dt: f32) {
-        if let GameState::Battle { engine } = &mut self.state {
-            // 1. Tick the physics
-            // We assume you have a way to pass the inputs collected this frame to the engine
-            let kills = engine.tick(dt, &std::collections::HashMap::new()); 
-            
-            // 2. Check Win Condition
-            if let Some(winner_team) = common::game::check_round_winner(&engine.state.players) {
-                self.state = GameState::Ended { winner: winner_team };
-                self.outgoing_events.push(GameEvent::GameEnded(winner_team));
+                if let Some(winner) = result.winner {
+                    self.outgoing_events.push(GameEvent::GameEnded(winner));
+                    self.state = GameState::Ended(EndedData { winner });
+                }
+
+                Ok(())
             }
+
+            _ => Err("Command not allowed in current game state".to_string())
         }
     }
 }
