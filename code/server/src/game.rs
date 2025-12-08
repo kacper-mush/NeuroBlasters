@@ -90,9 +90,8 @@ impl Game {
     }
 
     pub fn tick(&mut self, dt: f32) {
-        self.outgoing_events.clear();
         self.handle_command(GameCommand::Tick(dt))
-            .expect("Handling a game tick should never fail");
+            .expect("Handling a game tick while in battle should never fail");
     }
 
     pub fn handle_command(&mut self, cmd: GameCommand) -> Result<(), String> {
@@ -151,6 +150,11 @@ impl Game {
                     self.state = GameState::Ended(EndedData { winner });
                 }
 
+                Ok(())
+            }
+
+            (_, GameCommand::Tick(_)) => {
+                // If not in battle, do nothing.
                 Ok(())
             }
 

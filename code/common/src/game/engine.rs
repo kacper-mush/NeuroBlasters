@@ -66,14 +66,6 @@ impl GameEngine {
         GameTickResult { kills, winner }
     }
 
-    // /// Overwrites the current state with a snapshot.
-    // /// Used by the Client to snap to the Server's authoritative state (Reconciliation).
-    // pub fn sync_state(&mut self, snapshot: GameStateSnapshot) {
-    //     self.state = snapshot;
-    //     // Note: If visual smoothness is required later, we might want to
-    //     // interpolate positions here instead of hard-overwriting.
-    // }
-
     /// Helper to inject a player (e.g. on spawn)
     pub fn add_player(&mut self, _player: PlayerId) {
         // TODO: default init for player

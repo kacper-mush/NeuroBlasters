@@ -62,7 +62,11 @@ impl GameManager {
     }
 
     fn generate_code(&mut self) -> GameCode {
-        let code = self.rng.random_range(1000..9999).to_string();
-        GameCode(code)
+        loop {
+            let code = GameCode(self.rng.random_range(1000..9999).to_string());
+            if !self.games.contains_key(&code) {
+                break code;
+            }
+        }
     }
 }

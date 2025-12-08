@@ -73,7 +73,6 @@ impl ServerApp {
             // Encode once, send bytes to many.
             if let Ok(payload) = encode_server_message(&ServerMessage::GameUpdate(update)) {
                 for client_id in recipients {
-                    // TODO: implement clean from
                     self.server
                         .send_message(client_id, RELIABLE_CHANNEL_ID, payload.clone());
                 }
