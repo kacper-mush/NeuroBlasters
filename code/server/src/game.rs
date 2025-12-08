@@ -1,22 +1,16 @@
 use common::game::engine::{GameEngine, GameTickResult};
-use common::protocol::{
-    ClientId, GameCode, GameEvent, GameStateSnapshot, InputPayload, MapDefinition, Player,
-    Projectile, Team,
-};
-use std::collections::{HashMap, VecDeque};
+use common::protocol::{ClientId, GameEvent, GameStateSnapshot, InputPayload, MapDefinition, Team};
+use std::collections::HashMap;
 
 type Players = HashMap<ClientId, String>;
 
 pub struct Game {
-    pub code: GameCode,
     pub players: Players,
-    pub state: GameState,
-
-    pub command_queue: VecDeque<GameCommand>,
+    state: GameState,
     pub outgoing_events: Vec<GameEvent>,
 }
 
-pub enum GameState {
+enum GameState {
     Waiting,
     Battle(BattleData),
     Ended(EndedData),
@@ -58,14 +52,6 @@ impl BattleData {
         self.inputs.clear();
         result
     }
-
-    pub fn get_inputs(&self) -> &HashMap<ClientId, InputPayload> {
-        &self.inputs
-    }
-
-    pub fn get_data(&self) -> (Vec<Player>, Vec<Projectile>) {
-        (self.engine.players.clone(), self.engine.projectiles.clone())
-    }
 }
 
 struct EndedData {
@@ -78,18 +64,23 @@ impl EndedData {
     }
 }
 
-impl GameState {
+impl Game {
+    pub fn new() -> Self {
+        Self {
+            players: HashMap::new(),
+            state: GameState::Waiting,
+            outgoing_events: Vec::new(),
+        }
+    }
+
     pub fn get_snapshot(&self) -> GameStateSnapshot {
-        match self {
+        match &self.state {
             GameState::Waiting => GameStateSnapshot::Waiting,
 
-            GameState::Battle(battle_data) => {
-                let (players, projectiles) = battle_data.get_data();
-                GameStateSnapshot::Battle {
-                    players,
-                    projectiles,
-                }
-            }
+            GameState::Battle(battle_data) => GameStateSnapshot::Battle {
+                players: battle_data.engine.players.clone(),
+                projectiles: battle_data.engine.projectiles.clone(),
+            },
 
             GameState::Ended(ended_data) => {
                 let winner = ended_data.get_data();
@@ -97,44 +88,33 @@ impl GameState {
             }
         }
     }
-}
-
-impl Game {
-    pub fn new(code: GameCode) -> Self {
-        Self {
-            code,
-            players: HashMap::new(),
-            state: GameState::Waiting,
-            command_queue: VecDeque::new(),
-            outgoing_events: Vec::new(),
-        }
-    }
 
     pub fn tick(&mut self, dt: f32) {
         self.outgoing_events.clear();
-        self.handle_command(GameCommand::Tick(dt));
+        self.handle_command(GameCommand::Tick(dt))
+            .expect("Handling a game tick should never fail");
     }
 
     pub fn handle_command(&mut self, cmd: GameCommand) -> Result<(), String> {
         match (&mut self.state, cmd) {
             (GameState::Waiting, GameCommand::Join(client_id, nickname)) => {
-                if self.players.contains_key(&client_id) {
-                    Err("Player already in game.".to_string())
-                } else {
-                    self.players.insert(client_id, nickname.clone());
+                if let std::collections::hash_map::Entry::Vacant(e) = self.players.entry(client_id)
+                {
+                    e.insert(nickname.clone());
                     self.outgoing_events.push(GameEvent::PlayerJoined(nickname));
                     Ok(())
+                } else {
+                    Err("Player already in game.".to_string())
                 }
             }
-            (GameState::Waiting, GameCommand::Leave(client_id)) | (GameState::Ended(_), GameCommand::Leave(client_id)) => {
+            (GameState::Waiting, GameCommand::Leave(client_id))
+            | (GameState::Ended(_), GameCommand::Leave(client_id)) => {
                 match self.players.remove(&client_id) {
                     Some(nickname) => {
                         self.outgoing_events.push(GameEvent::PlayerLeft(nickname));
                         Ok(())
                     }
-                    None => {
-                        Err("Player was not in the game.".to_string())
-                    }
+                    None => Err("Player was not in the game.".to_string()),
                 }
             }
 
@@ -174,7 +154,7 @@ impl Game {
                 Ok(())
             }
 
-            _ => Err("Command not allowed in current game state".to_string())
+            _ => Err("Command not allowed in current game state".to_string()),
         }
     }
 }

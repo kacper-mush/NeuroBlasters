@@ -1,10 +1,10 @@
 mod client;
 mod game;
-mod server;
 mod game_manager;
+mod server;
 
 use server::ServerApp;
-use tokio::time::{self, MissedTickBehavior, Duration};
+use tokio::time::{self, Duration, MissedTickBehavior};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 

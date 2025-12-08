@@ -1,4 +1,6 @@
-use super::{apply_player_physics, handle_shooting, resolve_combat, update_projectiles, check_round_winner};
+use super::{
+    apply_player_physics, check_round_winner, handle_shooting, resolve_combat, update_projectiles,
+};
 use crate::net::protocol::{InputPayload, KillEvent, MapDefinition, Player, Projectile, Team};
 use glam::Vec2;
 use std::collections::HashMap;

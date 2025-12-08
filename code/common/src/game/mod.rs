@@ -1,7 +1,7 @@
 pub mod engine;
 
 use crate::net::protocol::{
-    InputPayload, KillEvent, MapDefinition, Player, Projectile, RectWall, Team
+    InputPayload, KillEvent, MapDefinition, Player, Projectile, RectWall, Team,
 };
 use glam::Vec2;
 use rand::Rng;
@@ -295,7 +295,6 @@ pub fn check_round_winner(players: &[Player]) -> Option<Team> {
     None
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -374,7 +373,7 @@ mod tests {
 
         let mut projectiles = vec![Projectile {
             id: 99,
-            owner_id: 1,             // Owned by P1
+            owner_id: 1,                       // Owned by P1
             position: Vec2::new(200.0, 200.0), // Hits P2 immediately
             velocity: Vec2::ZERO,
             radius: 5.0,

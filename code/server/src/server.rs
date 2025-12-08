@@ -129,12 +129,9 @@ impl ServerApp {
         client_id: ClientId,
         message: ClientMessage,
     ) -> Result<Option<ServerMessage>, String> {
-        let client = self
-            .clients
-            .get_mut(&client_id)
-            .ok_or_else(|| "Unknown sender")?;
+        let client = self.clients.get_mut(&client_id).ok_or("Unknown sender")?;
 
-        match (client, message) {
+        let (response, new_state) = match (&*client, message) {
             (
                 ClientState::Handshaking,
                 ClientMessage::Handshake {
@@ -143,51 +140,70 @@ impl ServerApp {
                 },
             ) => {
                 if api_version != API_VERSION {
-                    Err("Api version mismatch".to_string())
+                    return Err("Api version mismatch".to_string());
                 } else {
-                    *client = ClientState::Lobby { nickname };
-                    Ok(Some(ServerMessage::Ok))
+                    (
+                        Some(ServerMessage::Ok),
+                        Some(ClientState::Lobby { nickname }),
+                    )
                 }
             }
 
             (ClientState::Lobby { nickname }, ClientMessage::CreateGame) => {
                 let game_code = self.game_manager.create_game();
-                self.game_manager.handle_game_command(&game_code, GameCommand::Join(client_id, nickname.to_string()))?;
-                *client = ClientState::InGame { nickname: nickname.clone(), game_code: game_code.clone() };
-                Ok(Some(ServerMessage::GameJoined { game_code }))
+                self.game_manager.handle_game_command(
+                    &game_code,
+                    GameCommand::Join(client_id, nickname.clone()),
+                )?;
+                (
+                    Some(ServerMessage::GameJoined {
+                        game_code: game_code.clone(),
+                    }),
+                    Some(ClientState::InGame { game_code }),
+                )
             }
 
             (ClientState::Lobby { nickname }, ClientMessage::JoinGame { game_code }) => {
-                self.game_manager.handle_game_command(&game_code, GameCommand::Join(client_id, nickname.to_string()))?;
-                *client = ClientState::InGame { nickname: nickname.clone(), game_code: game_code.clone() };
-                Ok(Some(ServerMessage::GameJoined { game_code }))
+                self.game_manager.handle_game_command(
+                    &game_code,
+                    GameCommand::Join(client_id, nickname.clone()),
+                )?;
+                (
+                    Some(ServerMessage::GameJoined {
+                        game_code: game_code.clone(),
+                    }),
+                    Some(ClientState::InGame { game_code }),
+                )
             }
-            
-            (
-                ClientState::InGame {
-                    nickname,
-                    game_code,
-                },
-                _,
-            ) => {
-                match message {
+
+            (ClientState::InGame { game_code, .. }, msg) => {
+                match msg {
                     ClientMessage::LeaveGame => {
-                        self.game_manager.handle_game_command(game_code, GameCommand::Leave(client_id))?;
-                        Ok(Some(ServerMessage::Ok))
+                        self.game_manager
+                            .handle_game_command(game_code, GameCommand::Leave(client_id))?;
+                        (Some(ServerMessage::Ok), None) // None means "don't change state"
                     }
                     ClientMessage::StartGame => {
-                        self.game_manager.handle_game_command(game_code, GameCommand::StartGame(client_id))?;
-                        Ok(Some(ServerMessage::Ok))
+                        self.game_manager
+                            .handle_game_command(game_code, GameCommand::StartGame(client_id))?;
+                        (Some(ServerMessage::Ok), None)
                     }
-                    ClientMessage::GameInput(input ) => {
-                        self.game_manager.handle_game_command(game_code, GameCommand::Input(client_id, input))?;
-                        Ok(None)
+                    ClientMessage::GameInput(input) => {
+                        self.game_manager
+                            .handle_game_command(game_code, GameCommand::Input(client_id, input))?;
+                        (None, None)
                     }
-                    _ => Err("Invalid message in current state".to_string())
+                    _ => return Err("Invalid message in current state".to_string()),
                 }
             }
-            (_, _) => Err("Invalid message in current state".to_string())
+            (_, _) => return Err("Invalid message in current state".to_string()),
+        };
+
+        if let Some(s) = new_state {
+            *client = s;
         }
+
+        Ok(response)
     }
 
     fn send_message(&mut self, client_id: ClientId, message: ServerMessage) {

@@ -10,13 +10,18 @@ pub const API_VERSION: ApiVersion = ApiVersion(2);
 /// Messages from Client -> Server
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum ClientMessage {
-    Handshake { api_version: ApiVersion, nickname: String },
+    Handshake {
+        api_version: ApiVersion,
+        nickname: String,
+    },
     CreateGame,
-    JoinGame { game_code: GameCode },
+    JoinGame {
+        game_code: GameCode,
+    },
     LeaveGame,
     StartGame,
     /// Player input for the current game tick
-    GameInput(InputPayload), 
+    GameInput(InputPayload),
 }
 
 /// Messages from Server -> Client
@@ -24,7 +29,9 @@ pub enum ClientMessage {
 pub enum ServerMessage {
     Ok,
     /// Response to CreateGame or JoinGame
-    GameJoined { game_code: GameCode },
+    GameJoined {
+        game_code: GameCode,
+    },
     /// The authoritative world state + events
     GameUpdate(GameUpdate),
     /// Something went wrong (e.g., "Game Full")
@@ -109,8 +116,8 @@ pub enum GameStateSnapshot {
         projectiles: Vec<Projectile>,
     },
     Ended {
-        winner: Team
-    }
+        winner: Team,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
