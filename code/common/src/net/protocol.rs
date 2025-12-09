@@ -1,180 +1,54 @@
+pub use renet::ClientId;
+
 use bincode::{Decode, Encode};
 use glam::Vec2;
-use thiserror::Error;
-
-// Message enums -------------------------------------------------------------
 
 pub const API_VERSION: ApiVersion = ApiVersion(2);
 
-/// All messages that the client can send to the server.
+// --- MESSAGES ---
+
+/// Messages from Client -> Server
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum ClientMessage {
-    /// Begin a session.
-    Connect { api_version: u16, nickname: String },
-    /// Request graceful shutdown.
-    Disconnect,
-    /// Create a lobby.
-    RoomCreate,
-    /// Join an existing lobby by code.
-    RoomJoin { room_code: RoomCode },
-    /// Leave the current lobby (only before the game starts).
-    RoomLeave,
-    /// Request the room countdown to start.
-    RoomStartCountdown { seconds: u32 },
-    /// Provide input for a future simulation tick.
-    Input {
-        tick_id: TickId,
-        payload: InputPayload,
+    Handshake {
+        api_version: ApiVersion,
+        nickname: String,
     },
+    CreateGame,
+    JoinGame {
+        game_code: GameCode,
+    },
+    LeaveGame,
+    StartGame,
+    /// Player input for the current game tick
+    GameInput(InputPayload),
 }
 
-/// All messages that the server can send to the client.
+/// Messages from Server -> Client
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum ServerMessage {
-    /// Confirm handshake.
-    ConnectOk {
-        session_id: SessionId,
+    Ok,
+    /// Response to CreateGame or JoinGame
+    GameJoined {
+        game_code: GameCode,
     },
-    /// Lobby created.
-    RoomCreateOk {
-        room_code: RoomCode,
-    },
-    /// Successfully joined lobby.
-    RoomJoinOk {
-        state: RoomState,
-    },
-    /// Lobby update broadcast whenever player list / countdown change.
-    RoomUpdate {
-        update: RoomUpdate,
-    },
-    /// Room leave result; players can't leave the room once game started.
-    RoomLeaveOk,
-    /// Game instance begins.
-    GameStart,
-    /// Game instance completes.
-    GameEnd {
-        result: GameResult,
-    },
-    /// Per-round start signal.
-    RoundStart {
-        round_id: RoundId,
-        game_time_ms: u64,
-    },
-    /// Per-round finish signal.
-    RoundEnd {
-        round_id: RoundId,
-        summary: RoundSummary,
-    },
-    /// Static map transfer.
-    GameMap {
-        map: MapDefinition,
-    },
-    /// Authoritative per-tick state & events batch.
-    GameUpdate {
-        tick_id: TickId,
-        update: GameUpdate,
-    },
-    PlayerKilled {
-        kill_event: KillEvent,
-    },
-    /// Unified error channel carrying all server → client errors.
-    Error(ServerError),
+    /// The authoritative world state + events
+    GameUpdate(GameUpdate),
+    /// Something went wrong (e.g., "Game Full")
+    Error(String),
 }
 
-/// All server → client errors carried through `ServerMessage::Error`.
-#[derive(Debug, Clone, PartialEq, Eq, Error, Encode, Decode)]
-pub enum ServerError {
-    #[error("Handshake error")]
-    Connect(#[from] ConnectError),
-    #[error("Room creation error")]
-    RoomCreate(#[from] RoomCreateError),
-    #[error("Room join error")]
-    RoomJoin(#[from] RoomJoinError),
-    #[error("Room leave error")]
-    RoomLeave(#[from] RoomLeaveError),
-    #[error("Room countdown error")]
-    RoomCountdown(#[from] CountdownError),
-    #[error("Input error at tick {tick_id:?}")]
-    Input { tick_id: TickId },
-    #[error("Server error")]
-    General,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
-pub enum ConnectError {
-    #[error("api version mismatch: requested {requested}, expected {expected}")]
-    ApiVersionMismatch { requested: u16, expected: u16 },
-    #[error("client attempted duplicate handshake (session {session_id:?})")]
-    DuplicateHandshake { session_id: SessionId },
-    #[error("client must complete handshake before sending messages")]
-    HandshakeRequired,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
-pub enum RoomCreateError {
-    #[error("client already belongs to room {room_code:?}")]
-    AlreadyInRoom { room_code: RoomCode },
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
-pub enum RoomJoinError {
-    #[error("client already belongs to room {room_code:?}")]
-    AlreadyInRoom { room_code: RoomCode },
-    #[error("room code {room_code:?} is invalid")]
-    InvalidCode { room_code: RoomCode },
-    #[error("room {room_code:?} was not found")]
-    NotFound { room_code: RoomCode },
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
-pub enum RoomLeaveError {
-    #[error("client is not part of any room")]
-    NotInRoom,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Error, Encode, Decode)]
-pub enum CountdownError {
-    #[error("client is not part of any room")]
-    NotInRoom,
-    #[error("countdown duration must be greater than zero")]
-    InvalidSeconds,
-    #[error("at least two players are required to start the countdown")]
-    NotEnoughPlayers,
-}
-
-// Concrete message payload structs -----------------------------------------
-
-// Identifier newtypes -------------------------------------------------------
+// --- IDENTIFIERS ---
 
 /// Protocol / API version negotiated at connect time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct ApiVersion(pub u16);
 
-/// Unique identifier of a client session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct SessionId(pub u64);
-
-/// Human–facing lobby code used to join rooms.
+/// Human–facing lobby code used to join games.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct RoomCode(pub String);
+pub struct GameCode(pub String);
 
-/// Unique identifier of a round within a game.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct RoundId(pub u64);
-
-/// Simulation tick identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct TickId(pub u64);
-
-/// Player identifier used across the session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct PlayerId(pub u64);
-
-/// Low–level client identifier (transport / connection).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Encode, Decode)]
-pub struct ClientId(pub u64);
-
-// Additional Game Entities --------------------------------------------------
+// --- GAME ENTITIES ---
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct RectWall {
@@ -191,8 +65,8 @@ pub enum Team {
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct PlayerState {
-    pub id: PlayerId,
+pub struct Player {
+    pub id: ClientId,
     pub team: Team,
     #[bincode(with_serde)]
     pub position: Vec2,
@@ -208,7 +82,7 @@ pub struct PlayerState {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct Projectile {
     pub id: u64,
-    pub owner_id: PlayerId,
+    pub owner_id: ClientId,
     #[bincode(with_serde)]
     pub position: Vec2,
     #[bincode(with_serde)]
@@ -216,9 +90,8 @@ pub struct Projectile {
     pub radius: f32,
 }
 
-// Payload types -------------------------------------------------------------
+// --- PAYLOADS ---
 
-/// Logical input payload sent from the client for a single tick.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct InputPayload {
     #[bincode(with_serde)]
@@ -228,77 +101,51 @@ pub struct InputPayload {
     pub shoot: bool,
 }
 
-/// Full lobby / room state snapshot.
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct RoomState {
-    pub members: Vec<RoomMember>,
-    pub countdown_seconds_left: Option<u32>,
-}
-
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct RoomMember {
-    pub session_id: SessionId,
-    pub nickname: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct RoomUpdate {
-    pub state: RoomState,
-    pub events: Vec<RoomEvent>,
-}
-
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub enum RoomEvent {
-    PlayerJoined { nickname: String },
-    PlayerLeft { nickname: String },
-    CountdownStarted { seconds: u32 },
-    CountdownTick { seconds_left: u32 },
-    CountdownFinished,
-    CountdownCancelled,
-}
-
-/// Result of a completed game.
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct GameResult {
-    pub winner: Option<Team>,
-}
-
-/// Summary information for a completed round.
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct RoundSummary {
-    pub duration_seconds: f32,
-}
-
-/// Static map definition.
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode, Default)]
 pub struct MapDefinition {
     pub width: f32,
     pub height: f32,
     pub walls: Vec<RectWall>,
 }
 
-/// Authoritative per–tick game state snapshot.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct GameStateSnapshot {
-    pub players: Vec<PlayerState>,
-    pub projectiles: Vec<Projectile>,
-    pub time_remaining: f32,
+pub enum GameStateSnapshot {
+    Waiting,
+    Battle {
+        players: Vec<Player>,
+        projectiles: Vec<Projectile>,
+    },
+    Ended {
+        winner: Team,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct GameUpdate {
+    pub players: Vec<(ClientId, String)>,
     pub state: GameStateSnapshot,
     pub events: Vec<GameEvent>,
 }
 
+/// One-shot events for the UI/Audio (not persistent state)
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum GameEvent {
-    Placeholder,
+    PlayerJoined(String),
+    PlayerLeft(String),
+    GameStarted(MapDefinition),
+    GameEnded(Team),
+    Kill(KillEvent),
 }
 
-// Tells who killed whom.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct KillEvent {
-    pub killer_id: PlayerId,
-    pub victim_id: PlayerId,
+    pub killer_id: ClientId,
+    pub victim_id: ClientId,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub enum ServerError {
+    General,
+    GameFull,
+    InvalidState,
 }

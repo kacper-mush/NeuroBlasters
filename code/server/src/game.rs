@@ -1,53 +1,164 @@
-use std::time::Instant;
+use common::game::engine::{GameEngine, GameTickResult};
+use common::protocol::{ClientId, GameEvent, GameStateSnapshot, InputPayload, MapDefinition, Team};
+use std::collections::HashMap;
 
-use common::protocol::{GameStateSnapshot, GameUpdate, MapDefinition, RectWall, TickId};
-use glam::Vec2;
+type Players = HashMap<ClientId, String>;
 
-pub struct GameStartContext {
-    pub initial_tick_id: TickId,
+pub struct Game {
+    pub players: Players,
+    state: GameState,
+    pub outgoing_events: Vec<GameEvent>,
 }
 
-#[allow(dead_code)]
-pub struct GameInstance {
-    started_at: Instant,
-    next_tick_id: TickId,
+enum GameState {
+    Waiting,
+    Battle(BattleData),
+    Ended(EndedData),
 }
 
-impl GameInstance {
-    pub fn start(started_at: Instant) -> (Self, GameStartContext) {
-        let initial_tick_id = TickId(0);
-        (
-            Self {
-                started_at,
-                next_tick_id: TickId(initial_tick_id.0 + 1),
+pub enum GameCommand {
+    Join(ClientId, String),
+    Leave(ClientId),
+    StartGame(ClientId),
+    Input(ClientId, InputPayload),
+    Tick(f32),
+}
+
+struct BattleData {
+    engine: GameEngine,
+    inputs: HashMap<ClientId, InputPayload>,
+}
+
+impl BattleData {
+    pub fn new(map: MapDefinition, players: Players) -> Self {
+        let mut engine = GameEngine::new(map.clone());
+
+        for (client_id, _) in players {
+            engine.add_player(client_id);
+        }
+
+        Self {
+            engine,
+            inputs: HashMap::new(),
+        }
+    }
+
+    pub fn process_input(&mut self, client_id: ClientId, input: InputPayload) {
+        self.inputs.insert(client_id, input);
+    }
+
+    pub fn tick(&mut self, dt: f32) -> GameTickResult {
+        let result = self.engine.tick(dt, &self.inputs);
+        self.inputs.clear();
+        result
+    }
+}
+
+struct EndedData {
+    winner: Team,
+}
+
+impl EndedData {
+    pub fn get_data(&self) -> Team {
+        self.winner
+    }
+}
+
+impl Game {
+    pub fn new() -> Self {
+        Self {
+            players: HashMap::new(),
+            state: GameState::Waiting,
+            outgoing_events: Vec::new(),
+        }
+    }
+
+    pub fn get_snapshot(&self) -> GameStateSnapshot {
+        match &self.state {
+            GameState::Waiting => GameStateSnapshot::Waiting,
+
+            GameState::Battle(battle_data) => GameStateSnapshot::Battle {
+                players: battle_data.engine.players.clone(),
+                projectiles: battle_data.engine.projectiles.clone(),
             },
-            GameStartContext { initial_tick_id },
-        )
-    }
-}
 
-pub fn placeholder_map() -> MapDefinition {
-    MapDefinition {
-        width: 1000.0,
-        height: 1000.0,
-        walls: vec![RectWall {
-            min: Vec2::new(400.0, 400.0),
-            max: Vec2::new(600.0, 600.0),
-        }],
+            GameState::Ended(ended_data) => {
+                let winner = ended_data.get_data();
+                GameStateSnapshot::Ended { winner }
+            }
+        }
     }
-}
 
-pub fn placeholder_game_update() -> GameUpdate {
-    GameUpdate {
-        state: placeholder_game_state(),
-        events: Vec::new(),
+    pub fn tick(&mut self, dt: f32) {
+        self.handle_command(GameCommand::Tick(dt))
+            .expect("Handling a game tick while in battle should never fail");
     }
-}
 
-fn placeholder_game_state() -> GameStateSnapshot {
-    GameStateSnapshot {
-        players: Vec::new(),
-        projectiles: Vec::new(),
-        time_remaining: 0.0,
+    pub fn handle_command(&mut self, cmd: GameCommand) -> Result<(), String> {
+        match (&mut self.state, cmd) {
+            (GameState::Waiting, GameCommand::Join(client_id, nickname)) => {
+                if let std::collections::hash_map::Entry::Vacant(e) = self.players.entry(client_id)
+                {
+                    e.insert(nickname.clone());
+                    self.outgoing_events.push(GameEvent::PlayerJoined(nickname));
+                    Ok(())
+                } else {
+                    Err("Player already in game.".to_string())
+                }
+            }
+            (GameState::Waiting, GameCommand::Leave(client_id))
+            | (GameState::Ended(_), GameCommand::Leave(client_id)) => {
+                match self.players.remove(&client_id) {
+                    Some(nickname) => {
+                        self.outgoing_events.push(GameEvent::PlayerLeft(nickname));
+                        Ok(())
+                    }
+                    None => Err("Player was not in the game.".to_string()),
+                }
+            }
+
+            (GameState::Waiting, GameCommand::StartGame(_requester)) => {
+                if self.players.len() < 2 {
+                    Err("At least 2 players needed to start the game".to_string())
+                } else {
+                    let map = MapDefinition::default(); // TODO: load from somewhere
+                    let battle_data = BattleData::new(map.clone(), self.players.clone());
+
+                    self.outgoing_events.push(GameEvent::GameStarted(map));
+                    self.state = GameState::Battle(battle_data);
+
+                    Ok(())
+                }
+            }
+
+            (GameState::Battle(battle_data), GameCommand::Input(client_id, input)) => {
+                battle_data.process_input(client_id, input);
+                Ok(())
+            }
+
+            (GameState::Battle(battle_data), GameCommand::Tick(dt)) => {
+                let result = battle_data.tick(dt);
+                let mut kill_events = result
+                    .kills
+                    .iter()
+                    .map(|kill_event| GameEvent::Kill(kill_event.clone()))
+                    .collect();
+                self.outgoing_events.append(&mut kill_events);
+
+                if let Some(winner) = result.winner {
+                    self.outgoing_events.push(GameEvent::GameEnded(winner));
+                    self.state = GameState::Ended(EndedData { winner });
+                }
+
+                Ok(())
+            }
+
+            (_, GameCommand::Tick(_)) => {
+                // If not in battle, do nothing.
+                Ok(())
+            }
+
+            _ => Err("Command not allowed in current game state".to_string()),
+        }
     }
 }
