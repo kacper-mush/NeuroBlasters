@@ -306,7 +306,7 @@ mod tests {
     // --- Helper to create dummy players ---
     fn make_player(id: u64, team: Team, pos: Vec2) -> Player {
         Player {
-            id: id,
+            id,
             team,
             position: pos,
             velocity: Vec2::ZERO,
