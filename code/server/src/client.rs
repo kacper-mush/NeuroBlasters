@@ -1,14 +1,13 @@
 use common::protocol::GameCode;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum ClientState {
+    #[default]
     Handshaking,
-    Lobby { nickname: String },
-    InGame { game_code: GameCode },
-}
-
-impl Default for ClientState {
-    fn default() -> Self {
-        Self::Handshaking
-    }
+    Lobby {
+        nickname: String,
+    },
+    InGame {
+        game_code: GameCode,
+    },
 }
