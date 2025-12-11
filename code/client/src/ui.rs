@@ -248,8 +248,8 @@ impl TextField {
                     // discard
                 }
             }
-        } else if is_mouse_button_released(MouseButton::Left) {
-            // User clicked outside
+        } else if is_mouse_button_released(MouseButton::Left) || is_key_released(KeyCode::Escape) {
+            // User clicked outside or pressed escape
             self.focused = false;
         }
 
@@ -273,5 +273,11 @@ impl TextField {
 
     pub fn text(&self) -> String {
         self.text_string.clone()
+    }
+
+    pub fn reset(&mut self) {
+        self.text_string.clear();
+        self.focused = false;
+        self.since_last_remove = 0.;
     }
 }
