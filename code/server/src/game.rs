@@ -1,5 +1,10 @@
+use common::ai::{BotAgent, BotDifficulty};
 use common::game::engine::{GameEngine, GameTickResult};
-use common::protocol::{ClientId, GameEvent, GameStateSnapshot, InputPayload, MapDefinition, Team};
+use common::protocol::{
+    ClientId, GameEvent, GameStateSnapshot, InputPayload, MapDefinition, Player, Team,
+};
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 
 type Players = HashMap<ClientId, String>;
@@ -27,21 +32,59 @@ pub enum GameCommand {
 struct BattleData {
     engine: GameEngine,
     inputs: HashMap<ClientId, InputPayload>,
+    bots: Vec<(ClientId, BotAgent)>,
 }
 
 impl BattleData {
-    pub fn new(map: MapDefinition, _players: Players) -> Self {
-        let engine = GameEngine::new(map.clone());
+    pub fn new(map: MapDefinition, mut players: Players) -> Result<Self, String> {
+        if map.spawn_points.len() < players.len() {
+            return Err("Too many players for this map".to_string());
+        }
 
-        // TODO: Add this functionality!
-        // for (client_id, _) in players {
-        //     engine.add_player(client_id);
-        // }
+        // TODO: the whole bot functionality could be sent to a different file.
+        let generate_bot_id = |player_ids: Vec<&ClientId>| -> ClientId {
+            let mut rng = StdRng::from_os_rng();
+            loop {
+                let id: u64 = rng.random();
+                if !player_ids.contains(&&id) {
+                    break id;
+                }
+            }
+        };
 
-        Self {
+        // Fill up left spaces with bots
+        let mut bots: Vec<(ClientId, BotAgent)> = Vec::new();
+
+        for _ in 0..map.spawn_points.len() - players.len() {
+            let bot_id = generate_bot_id(players.keys().collect());
+            bots.push((bot_id, BotAgent::new(BotDifficulty::Wanderer, 222)));
+            players.insert(bot_id, "Bot".to_string());
+        }
+
+        let mut engine = GameEngine::new(map.clone());
+
+        let mut spawn_points = map.spawn_points.clone();
+        let mut curr_team = Team::Blue;
+
+        for (client_id, nickname) in players {
+            let pos = spawn_points
+                .iter()
+                .position(|&(t, _)| t == curr_team)
+                .unwrap();
+            let (team, spawn) = spawn_points.remove(pos);
+            engine.add_player(Player::new(client_id, nickname, team, spawn));
+            curr_team = if curr_team == Team::Blue {
+                Team::Red
+            } else {
+                Team::Blue
+            };
+        }
+
+        Ok(Self {
             engine,
             inputs: HashMap::new(),
-        }
+            bots,
+        })
     }
 
     pub fn process_input(&mut self, client_id: ClientId, input: InputPayload) {
@@ -49,6 +92,21 @@ impl BattleData {
     }
 
     pub fn tick(&mut self, dt: f32) -> GameTickResult {
+        // Let each bot do their thing
+        self.bots.iter_mut().for_each(|(id, bot)| {
+            let player = self.engine.players.iter().find(|p| p.id == *id);
+            if let Some(player) = player {
+                let input = bot.generate_input(
+                    player,
+                    &self.engine.players,
+                    &self.engine.projectiles,
+                    &self.engine.map,
+                    dt,
+                );
+                self.inputs.insert(*id, input);
+            }
+        });
+
         let result = self.engine.tick(dt, &self.inputs);
         self.inputs.clear();
         result
@@ -91,8 +149,11 @@ impl Game {
     }
 
     pub fn tick(&mut self, dt: f32) {
-        self.handle_command(GameCommand::Tick(dt))
-            .expect("Handling a game tick while in battle should never fail");
+        //self.outgoing_events.clear();
+        if matches!(self.state, GameState::Battle(_)) {
+            self.handle_command(GameCommand::Tick(dt))
+                .expect("Handling a game tick should never fail");
+        }
     }
 
     pub fn handle_command(&mut self, cmd: GameCommand) -> Result<(), String> {
@@ -107,24 +168,22 @@ impl Game {
                     Err("Player already in game.".to_string())
                 }
             }
-            (GameState::Waiting, GameCommand::Leave(client_id))
-            | (GameState::Ended(_), GameCommand::Leave(client_id)) => {
-                match self.players.remove(&client_id) {
-                    Some(nickname) => {
-                        self.outgoing_events.push(GameEvent::PlayerLeft(nickname));
-                        Ok(())
-                    }
-                    None => Err("Player was not in the game.".to_string()),
+            (_, GameCommand::Leave(client_id)) => match self.players.remove(&client_id) {
+                Some(nickname) => {
+                    self.outgoing_events.push(GameEvent::PlayerLeft(nickname));
+                    Ok(())
                 }
-            }
+                None => Err("Player was not in the game.".to_string()),
+            },
 
             (GameState::Waiting, GameCommand::StartGame(_requester)) => {
                 if self.players.len() < 2 {
                     Err("At least 2 players needed to start the game".to_string())
                 } else {
-                    // TODO: pass a chosen map
+                    // TODO: pass a map selection to be loaded
                     let map = MapDefinition::load();
-                    let battle_data = BattleData::new(map.clone(), self.players.clone());
+
+                    let battle_data = BattleData::new(map.clone(), self.players.clone())?;
 
                     self.outgoing_events.push(GameEvent::GameStarted(map));
                     self.state = GameState::Battle(battle_data);
