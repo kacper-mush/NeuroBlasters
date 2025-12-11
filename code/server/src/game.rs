@@ -30,12 +30,13 @@ struct BattleData {
 }
 
 impl BattleData {
-    pub fn new(map: MapDefinition, players: Players) -> Self {
-        let mut engine = GameEngine::new(map.clone());
+    pub fn new(map: MapDefinition, _players: Players) -> Self {
+        let engine = GameEngine::new(map.clone());
 
-        for (client_id, _) in players {
-            engine.add_player(client_id);
-        }
+        // TODO: Add this functionality!
+        // for (client_id, _) in players {
+        //     engine.add_player(client_id);
+        // }
 
         Self {
             engine,
@@ -121,7 +122,8 @@ impl Game {
                 if self.players.len() < 2 {
                     Err("At least 2 players needed to start the game".to_string())
                 } else {
-                    let map = MapDefinition::default(); // TODO: load from somewhere
+                    // TODO: pass a chosen map
+                    let map = MapDefinition::load();
                     let battle_data = BattleData::new(map.clone(), self.players.clone());
 
                     self.outgoing_events.push(GameEvent::GameStarted(map));
