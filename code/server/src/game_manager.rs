@@ -3,8 +3,9 @@ use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use tracing::info;
 
+use crate::client::ClientState;
 use crate::game::{Game, GameCommand};
-use common::protocol::{ClientId, GameCode, GameUpdate};
+use common::protocol::{ClientId, GameCode, GameStateSnapshot, GameUpdate};
 
 pub struct GameManager {
     pub games: HashMap<GameCode, Game>,
@@ -21,26 +22,53 @@ impl GameManager {
 
     /// Advances all games by `dt`.
     /// Returns a list of (Recipients, UpdatePacket) pairs to be broadcasted.
-    pub fn tick(&mut self, dt: f32) -> Vec<(Vec<ClientId>, GameUpdate)> {
+    pub fn tick(
+        &mut self,
+        dt: f32,
+        clients: &mut HashMap<ClientId, ClientState>,
+    ) -> Vec<(Vec<ClientId>, GameUpdate)> {
         let mut updates = Vec::new();
-
-        for game in self.games.values_mut() {
+        // TODO: this logic is only for now, this should change in an upcoming refactor.
+        self.games.retain(|_, game| {
             game.tick(dt);
 
-            let players = game.players.clone().into_iter().collect();
+            let players = game
+                .players
+                .clone()
+                .into_iter()
+                .collect::<Vec<(u64, String)>>();
             let state = game.get_snapshot();
             let events = std::mem::take(&mut game.outgoing_events);
 
+            let should_keep = if let GameStateSnapshot::Ended { winner: _ } = state {
+                // Change client state appropriately
+                for (player_id, nickname) in &players {
+                    if let Some(state) = clients.get_mut(player_id) {
+                        *state = ClientState::Lobby {
+                            nickname: nickname.clone(),
+                        }
+                    }
+                }
+                false
+            } else {
+                true
+            };
+
+            // if !events.is_empty() {
+            //     print!("Setting up events to send: {:?}", events);
+            // }
             let update = GameUpdate {
                 players,
-                state,
+                state: state.clone(),
                 events,
             };
 
             let recipients = game.players.keys().copied().collect();
 
             updates.push((recipients, update));
-        }
+
+            should_keep
+        });
         updates
     }
 

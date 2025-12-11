@@ -67,7 +67,7 @@ impl ServerApp {
         self.process_net_events();
         self.process_client_messages();
 
-        let updates = self.game_manager.tick(dt);
+        let updates = self.game_manager.tick(dt, &mut self.clients);
 
         for (recipients, update) in updates {
             // Encode once, send bytes to many.
@@ -97,8 +97,22 @@ impl ServerApp {
                 }
                 ServerEvent::ClientDisconnected { client_id, reason } => {
                     info!(%client_id, ?reason, "Client disconnected");
-                    // If this client was in a game, he will be idle and unable to reconnect.
-                    self.clients.remove(&client_id);
+
+                    // TODO: this is a temporary bug fix. Subject to change in an upcoming refactor.
+                    let state = self.clients.remove(&client_id);
+                    if let Some(state) = state
+                        && let ClientState::InGame { game_code } = state
+                    {
+                        let res = self
+                            .game_manager
+                            .handle_game_command(&game_code, GameCommand::Leave(client_id));
+                        if let Err(e) = res {
+                            eprintln!(
+                                "Error while trying to remove a disconnected client from the game: {:?}",
+                                e
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -116,8 +130,15 @@ impl ServerApp {
                     }
                 };
 
-                if let Err(e) = self.handle_message(client_id, msg) {
-                    self.send_message(client_id, ServerMessage::Error(e.to_string()));
+                //println!("Got message: {:?}", msg);
+
+                match self.handle_message(client_id, msg) {
+                    Err(e) => self.send_message(client_id, ServerMessage::Error(e.to_string())),
+                    Ok(msg) => {
+                        if let Some(msg) = msg {
+                            self.send_message(client_id, msg);
+                        }
+                    }
                 }
             }
         }
@@ -206,6 +227,7 @@ impl ServerApp {
     }
 
     fn send_message(&mut self, client_id: ClientId, message: ServerMessage) {
+        //println!("Sending message: {:?}", message);
         if let Ok(payload) = encode_server_message(&message) {
             self.server
                 .send_message(client_id, RELIABLE_CHANNEL_ID, payload);
