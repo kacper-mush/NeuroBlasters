@@ -1,4 +1,6 @@
 pub mod engine;
+pub mod map;
+pub mod player;
 
 use crate::net::protocol::{
     InputPayload, KillEvent, MapDefinition, Player, Projectile, RectWall, Team,
@@ -309,6 +311,7 @@ mod tests {
             id,
             team,
             position: pos,
+            nickname: "foo".to_string(),
             velocity: Vec2::ZERO,
             rotation: 0.0,
             radius: 10.0,
@@ -327,6 +330,7 @@ mod tests {
                 min: Vec2::new(400.0, 400.0),
                 max: Vec2::new(600.0, 600.0),
             }],
+            spawn_points: Vec::new(),
         }
     }
 

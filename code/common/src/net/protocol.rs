@@ -2,6 +2,7 @@ pub use renet::ClientId;
 
 use bincode::{Decode, Encode};
 use glam::Vec2;
+use serde::{Deserialize, Serialize};
 
 pub const API_VERSION: ApiVersion = ApiVersion(2);
 
@@ -58,7 +59,7 @@ pub struct RectWall {
     pub max: Vec2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum Team {
     Blue,
     Red,
@@ -67,6 +68,7 @@ pub enum Team {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct Player {
     pub id: ClientId,
+    pub nickname: String,
     pub team: Team,
     #[bincode(with_serde)]
     pub position: Vec2,
@@ -101,11 +103,13 @@ pub struct InputPayload {
     pub shoot: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Encode, Decode, Default)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct MapDefinition {
     pub width: f32,
     pub height: f32,
     pub walls: Vec<RectWall>,
+    #[bincode(with_serde)]
+    pub spawn_points: Vec<(Team, Vec2)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]

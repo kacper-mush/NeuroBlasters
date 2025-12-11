@@ -1,12 +1,13 @@
 use super::{
     apply_player_physics, check_round_winner, handle_shooting, resolve_combat, update_projectiles,
 };
-use crate::net::protocol::{InputPayload, KillEvent, MapDefinition, Player, Projectile, Team};
+use crate::net::protocol::{
+    ClientId, InputPayload, KillEvent, MapDefinition, Player, Projectile, Team,
+};
 use glam::Vec2;
 use std::collections::HashMap;
 
-type PlayerId = u64;
-
+#[derive(Clone)]
 pub struct GameEngine {
     pub players: Vec<Player>,
     pub projectiles: Vec<Projectile>,
@@ -35,7 +36,7 @@ impl GameEngine {
     /// * `inputs`: A map of inputs for each player. If a player has no input in this map, they stay still.
     ///
     /// Returns a list of kills that happened during this tick.
-    pub fn tick(&mut self, dt: f32, inputs: &HashMap<PlayerId, InputPayload>) -> GameTickResult {
+    pub fn tick(&mut self, dt: f32, inputs: &HashMap<ClientId, InputPayload>) -> GameTickResult {
         for player in &mut self.players {
             let default_input = InputPayload {
                 move_axis: Vec2::ZERO,
@@ -67,8 +68,7 @@ impl GameEngine {
     }
 
     /// Helper to inject a player (e.g. on spawn)
-    pub fn add_player(&mut self, _player: PlayerId) {
-        // TODO: default init for player
-        // self.players.push(player);
+    pub fn add_player(&mut self, player: Player) {
+        self.players.push(player);
     }
 }

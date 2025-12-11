@@ -128,8 +128,14 @@ dependencies = [
 name = "client"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "common",
+ "glam",
  "macroquad",
+ "rand",
+ "renet",
+ "renet_netcode",
+ "serde",
 ]
 
 [[package]]
