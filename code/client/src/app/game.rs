@@ -2,7 +2,7 @@ use crate::app::winner_screen::WinnerScreen;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
 use crate::ui::{
-    Button, CANONICAL_SCREEN_MID_X, Field, TEXT_LARGE, TEXT_SMALL, Text, calc_transform,
+    Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_SMALL, Text, calc_transform,
 };
 use common::game::engine::GameEngine;
 use common::protocol::{ClientMessage, InputPayload, Team};
@@ -230,10 +230,9 @@ impl InGameMenu {
 impl View for InGameMenu {
     fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = CANONICAL_SCREEN_MID_X;
-        let default_text_params = TextParams {
-            font_size: 30,
-            ..Default::default()
-        };
+        let button_w = 250.;
+        let button_h = 50.;
+        let mut layout = Layout::new(150., 30.);
 
         // Menu grays the previous view
         draw_rectangle(
@@ -244,14 +243,22 @@ impl View for InGameMenu {
             Color::new(0.0, 0.0, 0.0, 0.5),
         );
 
-        Text::new_scaled(TEXT_LARGE).draw("PAUSED", x_mid, 150.);
+        Text::new_scaled(TEXT_LARGE).draw("PAUSED", x_mid, layout.next());
+        layout.add(50.);
 
-        self.resume_clicked = Button::new(Field::default(), Some(default_text_params.clone()))
-            .draw_centered(x_mid, 250., 250., 50., Some("Resume"))
+        self.resume_clicked = Button::default()
+            .draw_centered(x_mid, layout.next(), button_w, button_h, Some("Resume"))
             .poll();
+        layout.add(button_h);
 
-        self.quit_clicked = Button::new(Field::default(), Some(default_text_params.clone()))
-            .draw_centered(x_mid, 320., 250., 50., Some("Exit to Main Menu"))
+        self.quit_clicked = Button::default()
+            .draw_centered(
+                x_mid,
+                layout.next(),
+                button_w,
+                button_h,
+                Some("Exit to Main Menu"),
+            )
             .poll();
     }
 
@@ -263,11 +270,11 @@ impl View for InGameMenu {
 
         match &server.client_state {
             ClientState::AfterGame { winner } => {
-                // TODO: handle winner display
-                println!("Winner is: {:?}", winner);
+                let winner = *winner;
+                let _ = server.send_client_message(ClientMessage::LeaveGame);
                 return Transition::PopUntilAnd(
                     ViewId::RoomMenu,
-                    Box::new(WinnerScreen::new(*winner)),
+                    Box::new(WinnerScreen::new(winner)),
                 );
             }
             ClientState::Playing { game_engine: _ } => {
@@ -286,6 +293,7 @@ impl View for InGameMenu {
         }
 
         if self.quit_clicked {
+            let _ = server.send_client_message(ClientMessage::LeaveGame);
             return Transition::PopUntil(ViewId::RoomMenu);
         }
 

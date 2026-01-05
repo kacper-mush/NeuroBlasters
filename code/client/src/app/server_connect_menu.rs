@@ -1,7 +1,9 @@
 use crate::app::room_menu::RoomMenu;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::{ClientState, Server};
-use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Field, TEXT_LARGE, TEXT_MID, Text, TextField};
+use crate::ui::{
+    Button, CANONICAL_SCREEN_MID_X, Field, Layout, TEXT_LARGE, TEXT_MID, Text, TextField,
+};
 use macroquad::prelude::*;
 
 #[derive(Copy, Clone)]
@@ -29,32 +31,35 @@ impl ServerConnectMenu {
 impl View for ServerConnectMenu {
     fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = CANONICAL_SCREEN_MID_X;
-        let mut button = Button::new(Field::default(), Some(TextParams::default()));
-        let w = 300.;
-        let h = 50.;
-        let y_start = 270.;
-        let sep = 80.;
+        let el_w = 300.;
+        let el_h = 50.;
+        let mut layout = Layout::new(200., 30.);
 
-        Text::new_scaled(TEXT_LARGE).draw("Connect to server", x_mid, 200.);
+        Text::new_scaled(TEXT_LARGE).draw("Connect to server", x_mid, layout.next());
+        layout.add(40.);
 
         let default_message = "Enter server name:";
 
         let message = self.message.as_deref().unwrap_or(default_message);
-        Text::new_scaled(TEXT_MID).draw(message, x_mid, 230.);
+        Text::new_scaled(TEXT_MID).draw(message, x_mid, layout.next());
+        layout.add(20.);
 
-        self.servername_field.draw_centered(x_mid, y_start, w, h);
+        self.servername_field
+            .draw_centered(x_mid, layout.next(), el_w, el_h);
+        layout.add(el_h);
 
         self.button_pressed = None;
 
-        if button
-            .draw_centered(x_mid, y_start + sep, w, h, Some("Connect"))
+        if Button::default()
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Connect"))
             .poll()
         {
             self.button_pressed = Some(ServerConnectButtons::Connect);
         }
+        layout.add(el_h);
 
-        if button
-            .draw_centered(x_mid, y_start + 2. * sep, w, h, Some("Back"))
+        if Button::default()
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Back"))
             .poll()
         {
             self.button_pressed = Some(ServerConnectButtons::Back);

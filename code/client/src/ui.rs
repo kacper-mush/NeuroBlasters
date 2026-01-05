@@ -53,6 +53,28 @@ pub fn calc_transform(canonical_w: f32, canonical_h: f32) -> (f32, f32, f32) {
     (scaling, x_offset, y_offset)
 }
 
+pub struct Layout {
+    current_pos: f32,
+    padding: f32,
+}
+
+impl Layout {
+    pub fn new(start_pos: f32, padding: f32) -> Self {
+        Layout {
+            current_pos: start_pos,
+            padding,
+        }
+    }
+
+    pub fn next(&self) -> f32 {
+        self.current_pos
+    }
+
+    pub fn add(&mut self, el_size: f32) {
+        self.current_pos += el_size + self.padding
+    }
+}
+
 /// When drawing text, defines what the y position refers to
 #[derive(Clone)]
 pub(crate) enum TextVerticalPositioning {
@@ -292,6 +314,17 @@ impl Button {
 
     pub fn poll(&self) -> bool {
         self.field.poll()
+    }
+}
+
+impl Default for Button {
+    fn default() -> Self {
+        let params = TextParams {
+            font_size: TEXT_LARGE,
+            ..Default::default()
+        };
+
+        Button::new(Field::default(), Some(params))
     }
 }
 

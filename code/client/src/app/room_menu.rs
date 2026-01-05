@@ -1,7 +1,7 @@
 use crate::app::room_lobby::RoomLobby;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Field, TEXT_LARGE, Text, TextField};
+use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Field, Layout, TEXT_LARGE, Text, TextField};
 use common::protocol::{ClientMessage, GameCode};
 use macroquad::prelude::*;
 
@@ -31,43 +31,48 @@ impl RoomMenu {
 impl View for RoomMenu {
     fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = CANONICAL_SCREEN_MID_X;
-        let mut button = Button::new(Field::default(), Some(TextParams::default()));
-        let w = 300.;
-        let h = 50.;
-        let y_start = 270.;
-        let sep = 80.;
+        let el_w = 300.;
+        let el_h = 50.;
+        let mut layout = Layout::new(200., 30.);
 
         self.button_pressed = None;
 
-        Text::new_scaled(TEXT_LARGE).draw("Rooms", x_mid, 200.);
-        if button
-            .draw_centered(x_mid, y_start, w, h, Some("Create"))
+        Text::new_scaled(TEXT_LARGE).draw("Rooms", x_mid, layout.next());
+        layout.add(30.);
+
+        if Button::default()
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Create"))
             .poll()
         {
             self.button_pressed = Some(RoomMenuButtons::Create);
         }
+        layout.add(el_h);
 
-        Text::new_scaled(TEXT_LARGE).draw("Room code:", x_mid, y_start + sep);
+        Text::new_scaled(TEXT_LARGE).draw("Room code:", x_mid, layout.next());
+        layout.add(20.);
 
         self.room_code_field
-            .draw_centered(x_mid, y_start + 2. * sep, w, h);
+            .draw_centered(x_mid, layout.next(), el_w, el_h);
+        layout.add(el_h);
 
-        if button
-            .draw_centered(x_mid, y_start + 3. * sep, w, h, Some("Join"))
+        if Button::default()
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Join"))
             .poll()
         {
             self.button_pressed = Some(RoomMenuButtons::Join);
         }
+        layout.add(el_h);
 
-        if button
-            .draw_centered(x_mid, y_start + 4. * sep, w, h, Some("Back"))
+        if Button::default()
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Back"))
             .poll()
         {
             self.button_pressed = Some(RoomMenuButtons::Back);
         }
+        layout.add(el_h);
 
         if let Some(message) = self.message.as_ref() {
-            Text::new_scaled(TEXT_LARGE).draw(message, x_mid, y_start + 5. * sep);
+            Text::new_scaled(TEXT_LARGE).draw(message, x_mid, layout.next());
         }
     }
 
