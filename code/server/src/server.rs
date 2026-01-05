@@ -116,8 +116,13 @@ impl ServerApp {
                     }
                 };
 
-                if let Err(e) = self.handle_message(client_id, msg) {
-                    self.send_message(client_id, ServerMessage::Error(e.to_string()));
+                match self.handle_message(client_id, msg) {
+                    Err(e) => self.send_message(client_id, ServerMessage::Error(e.to_string())),
+                    Ok(msg) => {
+                        if let Some(msg) = msg {
+                            self.send_message(client_id, msg);
+                        }
+                    }
                 }
             }
         }
