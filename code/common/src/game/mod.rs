@@ -2,15 +2,15 @@ pub mod engine;
 pub mod map;
 pub mod player;
 
-use crate::net::protocol::{
+pub use crate::net::protocol::{
     InputPayload, KillEvent, MapDefinition, Player, Projectile, RectWall, Team,
 };
 use glam::Vec2;
 use rand::Rng;
 
 pub const PROJECTILE_SPEED: f32 = 500.0;
+pub const FIRE_RATE: f32 = 0.2; // Seconds between shots
 const PROJECTILE_RADIUS: f32 = 5.0;
-const FIRE_RATE: f32 = 0.2; // Seconds between shots
 const PROJECTILE_DAMAGE: f32 = 10.0;
 
 // --- Helper Functions ---
