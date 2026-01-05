@@ -5,20 +5,52 @@ pub const TEXT_SMALL: u16 = 16;
 pub const TEXT_MID: u16 = 20;
 pub const TEXT_LARGE: u16 = 30;
 pub const TEXT_HUGE: u16 = 40;
+const GLOBAL_SCALING: f32 = 1.5;
+pub const CANONICAL_SCREEN_WIDTH: f32 = 1920. / GLOBAL_SCALING;
+pub const CANONICAL_SCREEN_HEIGHT: f32 = 1080. / GLOBAL_SCALING;
+pub const CANONICAL_SCREEN_MID_X: f32 = CANONICAL_SCREEN_WIDTH / 2.;
+pub const CANONICAL_SCREEN_MID_Y: f32 = CANONICAL_SCREEN_HEIGHT / 2.;
 
 const BACKSPACE_DELAY_SECONDS: f32 = 0.1;
-const CANONICAL_SCREEN_WIDTH: f32 = 1920.;
-const CANONICAL_SCREEN_HEIGHT: f32 = 1080.;
 
 fn get_ui_scaling_factor() -> f32 {
+    calc_transform(CANONICAL_SCREEN_WIDTH, CANONICAL_SCREEN_HEIGHT).0
+}
+
+fn get_ui_transform() -> (f32, f32, f32) {
+    calc_transform(CANONICAL_SCREEN_WIDTH, CANONICAL_SCREEN_HEIGHT)
+}
+
+fn scale_dims(x: f32, y: f32, w: f32, h: f32) -> (f32, f32, f32, f32) {
+    let (scale, transform_x, transform_y) = get_ui_transform();
+    let x = x * scale + transform_x;
+    let y = y * scale + transform_y;
+    let w = w * scale;
+    let h = h * scale;
+    (x, y, w, h)
+}
+
+pub fn calc_transform(canonical_w: f32, canonical_h: f32) -> (f32, f32, f32) {
     let (screen_w, screen_h) = screen_size();
-    let x_scaling = screen_w / CANONICAL_SCREEN_WIDTH;
-    let y_scaling = screen_h / CANONICAL_SCREEN_HEIGHT;
+    let x_scaling = screen_w / canonical_w;
+    let y_scaling = screen_h / canonical_h;
+    let x_offset;
+    let y_offset;
+    let scaling;
+
+    // Choose scaling and offsets so that the map perfectly fits 1 dimension
+    // and is centered on the second dimension
     if x_scaling < y_scaling {
-        x_scaling
+        scaling = x_scaling;
+        x_offset = 0.;
+        y_offset = f32::abs(screen_h - canonical_h * scaling) / 2.;
     } else {
-        y_scaling
+        scaling = y_scaling;
+        x_offset = f32::abs(screen_w - canonical_w * scaling) / 2.;
+        y_offset = 0.;
     }
+
+    (scaling, x_offset, y_offset)
 }
 
 /// When drawing text, defines what the y position refers to
@@ -82,7 +114,6 @@ impl Text {
         Text {
             params: TextParams {
                 font_size,
-                font_scale: get_ui_scaling_factor(),
                 ..Default::default()
             },
             ..Default::default()
@@ -93,7 +124,6 @@ impl Text {
     pub fn new_title() -> Self {
         Text {
             params: TextParams {
-                font_scale: get_ui_scaling_factor(),
                 font_size: TEXT_HUGE,
                 color: GRAY,
                 ..Default::default()
@@ -102,41 +132,55 @@ impl Text {
         }
     }
 
-    pub fn draw(&self, text: &str, x: f32, y: f32) {
-        let text_dims = measure_text(
-            text,
-            self.params.font,
-            self.params.font_size,
-            self.params.font_scale,
-        );
+    /// User provides x, y coordinates that are already transformed
+    pub fn draw_no_scaling(&self, text: &str, x: f32, y: f32) {
+        let (o_x, o_y) = self.calculate_font_offset(text, &self.params);
 
+        draw_text_ex(text, x + o_x, y + o_y, self.params.clone());
+    }
+
+    /// Will be scaled as an UI element
+    pub fn draw(&self, text: &str, x: f32, y: f32) {
+        let (scale, transform_x, transform_y) = get_ui_transform();
+
+        // Scale font
+        let params = TextParams {
+            font_scale: scale,
+            ..self.params
+        };
+
+        // Transform position
+        let x = x * scale + transform_x;
+        let y = y * scale + transform_y;
+
+        let (o_x, o_y) = self.calculate_font_offset(text, &params);
+
+        draw_text_ex(text, x + o_x, y + o_y, params);
+    }
+
+    fn calculate_font_offset(&self, text: &str, params: &TextParams<'static>) -> (f32, f32) {
+        let text_dims = measure_text(text, params.font, params.font_size, params.font_scale);
         let x = match self.horizontal_positioning {
-            TextHorizontalPositioning::Left => x,
-            TextHorizontalPositioning::Right => x - text_dims.width,
-            TextHorizontalPositioning::Center => x - text_dims.width / 2.,
+            TextHorizontalPositioning::Left => 0.,
+            TextHorizontalPositioning::Right => -text_dims.width,
+            TextHorizontalPositioning::Center => -text_dims.width / 2.,
         };
 
         let y = match self.vertical_positioning {
             // We need to add the offset because the draw_text function draws regarding to the text baseline,
             // and not its lowest nor highest point. offset_y fixes that.
-            TextVerticalPositioning::CenterExact => {
-                y - (text_dims.height / 2.) + text_dims.offset_y
-            }
+            TextVerticalPositioning::CenterExact => -(text_dims.height / 2.) + text_dims.offset_y,
             // We use approx_dims for y calculation so the result is consistent for any text with these params
             TextVerticalPositioning::CenterConsistent => {
                 // "Hg" is a good approximate of highest text, because it has high-ascent and deep-descent glyphs.
-                let approx_dims = measure_text(
-                    "Hg",
-                    self.params.font,
-                    self.params.font_size,
-                    self.params.font_scale,
-                );
-                y - (approx_dims.height / 2.) + approx_dims.offset_y
+                let approx_dims =
+                    measure_text("Hg", params.font, params.font_size, params.font_scale);
+                -(approx_dims.height / 2.) + approx_dims.offset_y
             }
-            TextVerticalPositioning::Default => y,
+            TextVerticalPositioning::Default => 0.,
         };
 
-        draw_text_ex(text, x, y, self.params.clone());
+        (x, y)
     }
 }
 
@@ -160,6 +204,8 @@ pub(crate) struct Field {
 
 impl Field {
     pub fn draw(&mut self, x: f32, y: f32, w: f32, h: f32) -> &mut Self {
+        let (x, y, w, h) = scale_dims(x, y, w, h);
+
         let is_hovered = self.is_hovered(x, y, w, h);
         let bg_color = if is_hovered {
             self.hover_color

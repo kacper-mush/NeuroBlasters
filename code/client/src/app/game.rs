@@ -1,10 +1,11 @@
 use crate::app::winner_screen::WinnerScreen;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, Field, TEXT_LARGE, TEXT_SMALL, Text};
+use crate::ui::{
+    Button, CANONICAL_SCREEN_MID_X, Field, TEXT_LARGE, TEXT_SMALL, Text, calc_transform,
+};
 use common::game::engine::GameEngine;
 use common::protocol::{ClientMessage, InputPayload, Team};
-use macroquad::miniquad::window::screen_size;
 use macroquad::prelude::*;
 
 pub(crate) struct Game {
@@ -15,37 +16,14 @@ impl Game {
     pub fn new(game_engine: GameEngine) -> Self {
         Self { game_engine }
     }
-
-    fn calc_transform(&mut self) -> (f32, f32, f32) {
-        let (map_w, map_h) = (self.game_engine.map.width, self.game_engine.map.height);
-        let (screen_w, screen_h) = screen_size();
-        let x_scaling = screen_w / map_w;
-        let y_scaling = screen_h / map_h;
-        let x_offset;
-        let y_offset;
-        let scaling;
-
-        // Choose scaling and offsets so that the map perfectly fits 1 dimension
-        // and is centered on the second dimension
-        if x_scaling < y_scaling {
-            scaling = x_scaling;
-            x_offset = 0.;
-            y_offset = f32::abs(screen_h - map_h * scaling) / 2.;
-        } else {
-            scaling = y_scaling;
-            x_offset = f32::abs(screen_w - map_w * scaling) / 2.;
-            y_offset = 0.;
-        }
-
-        (scaling, x_offset, y_offset)
-    }
 }
 
 impl View for Game {
     fn draw(&mut self, ctx: &AppContext) {
         clear_background(LIGHTGRAY);
 
-        let (scaling, x_offset, y_offset) = self.calc_transform();
+        let (scaling, x_offset, y_offset) =
+            calc_transform(self.game_engine.map.width, self.game_engine.map.height);
         let transform_x = |x: f32| x * scaling + x_offset;
         let transform_y = |y: f32| y * scaling + y_offset;
         let scale = |dim: f32| dim * scaling;
@@ -121,7 +99,7 @@ impl View for Game {
             );
 
             // Draw nick
-            Text::new_simple(TEXT_SMALL, scaling).draw(
+            Text::new_simple(TEXT_SMALL, scaling).draw_no_scaling(
                 &player.nickname,
                 transform_x(player.position.x),
                 transform_y(player.position.y - player.radius - hb_h - 30.),
@@ -170,7 +148,8 @@ impl View for Game {
             self.game_engine = engine;
         }
 
-        let (scaling, x_offset, y_offset) = self.calc_transform();
+        let (scaling, x_offset, y_offset) =
+            calc_transform(self.game_engine.map.width, self.game_engine.map.height);
         let inv_transform_x = |x: f32| (x - x_offset) / scaling;
         let inv_transform_y = |y: f32| (y - y_offset) / scaling;
 
@@ -250,7 +229,7 @@ impl InGameMenu {
 
 impl View for InGameMenu {
     fn draw(&mut self, _ctx: &AppContext) {
-        let x_mid = screen_width() / 2.;
+        let x_mid = CANONICAL_SCREEN_MID_X;
         let default_text_params = TextParams {
             font_size: 30,
             ..Default::default()

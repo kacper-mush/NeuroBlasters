@@ -1,7 +1,7 @@
 use crate::app::game::Game;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, Field, TEXT_HUGE, TEXT_LARGE, TEXT_MID, Text};
+use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Field, TEXT_HUGE, TEXT_LARGE, TEXT_MID, Text};
 use common::protocol::{ClientMessage, GameCode};
 use macroquad::prelude::*;
 
@@ -29,7 +29,7 @@ impl RoomLobby {
 
 impl View for RoomLobby {
     fn draw(&mut self, _ctx: &AppContext) {
-        let x_mid = screen_width() / 2.;
+        let x_mid = CANONICAL_SCREEN_MID_X;
         let mut button = Button::new(Field::default(), Some(TextParams::default()));
         let w = 300.;
         let h = 50.;

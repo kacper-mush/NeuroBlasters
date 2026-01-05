@@ -1,5 +1,5 @@
 use crate::app::{AppContext, Transition, View, ViewId};
-use crate::ui::{Button, Field, TEXT_LARGE, Text};
+use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Field, TEXT_LARGE, Text};
 use macroquad::prelude::*;
 
 pub(crate) struct TrainingMenu {
@@ -16,7 +16,7 @@ impl TrainingMenu {
 
 impl View for TrainingMenu {
     fn draw(&mut self, _ctx: &AppContext) {
-        let x_mid = screen_width() / 2.;
+        let x_mid = CANONICAL_SCREEN_MID_X;
 
         Text::new_scaled(TEXT_LARGE).draw("Training coming soon!", x_mid, 200.);
         self.back_clicked = Button::new(Field::default(), Some(TextParams::default()))

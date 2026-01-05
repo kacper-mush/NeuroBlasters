@@ -1,6 +1,6 @@
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, Field, TEXT_LARGE, Text};
+use crate::ui::{Button, CANONICAL_SCREEN_MID_X, CANONICAL_SCREEN_MID_Y, Field, TEXT_LARGE, Text};
 use common::protocol::Team;
 use macroquad::prelude::*;
 
@@ -20,8 +20,8 @@ impl WinnerScreen {
 
 impl View for WinnerScreen {
     fn draw(&mut self, _ctx: &AppContext) {
-        let x_mid = screen_width() / 2.;
-        let y_mid = screen_height() / 2.;
+        let x_mid = CANONICAL_SCREEN_MID_X;
+        let y_mid = CANONICAL_SCREEN_MID_Y;
 
         // overlay the previous view
         draw_rectangle(

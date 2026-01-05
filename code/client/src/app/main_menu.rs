@@ -2,7 +2,7 @@ use crate::app::options_menu::OptionsMenu;
 use crate::app::server_connect_menu::ServerConnectMenu;
 use crate::app::training_menu::TrainingMenu;
 use crate::app::{AppContext, Transition, View, ViewId};
-use crate::ui::{Button, Field, Text};
+use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Field, TEXT_LARGE, Text};
 use macroquad::prelude::*;
 
 #[derive(Clone, Copy)]
@@ -27,9 +27,9 @@ impl MainMenu {
 
 impl View for MainMenu {
     fn draw(&mut self, _ctx: &AppContext) {
-        let x_mid = screen_width() / 2.;
+        let x_mid = CANONICAL_SCREEN_MID_X;
         let default_text_params = TextParams {
-            font_size: 30,
+            font_size: TEXT_LARGE,
             ..Default::default()
         };
 

@@ -1,7 +1,7 @@
 use crate::app::room_menu::RoomMenu;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::{ClientState, Server};
-use crate::ui::{Button, Field, TEXT_LARGE, TEXT_MID, Text, TextField};
+use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Field, TEXT_LARGE, TEXT_MID, Text, TextField};
 use macroquad::prelude::*;
 
 #[derive(Copy, Clone)]
@@ -28,7 +28,7 @@ impl ServerConnectMenu {
 
 impl View for ServerConnectMenu {
     fn draw(&mut self, _ctx: &AppContext) {
-        let x_mid = screen_width() / 2.;
+        let x_mid = CANONICAL_SCREEN_MID_X;
         let mut button = Button::new(Field::default(), Some(TextParams::default()));
         let w = 300.;
         let h = 50.;
