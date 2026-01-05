@@ -70,7 +70,12 @@ const RELIABLE_CHANNEL_ID: u8 = 0;
 const API_VERSION: ApiVersion = ApiVersion(2);
 
 impl Server {
-    pub fn new(servername: String, nickname: String) -> Result<Self, String> {
+    pub fn new(mut servername: String, nickname: String) -> Result<Self, String> {
+        // If no port suffix present, append the 8080 port which is the default for our server
+        if !servername.contains(':') {
+            servername.push_str(":8080");
+        }
+
         let server_addr = servername
             .to_socket_addrs()
             .ok()
@@ -81,8 +86,13 @@ impl Server {
 
         let client = RenetClient::new(connection_config);
 
-        let socket = UdpSocket::bind("127.0.0.1:0")
-            .or(Err("Could not establish a connection".to_string()))?;
+        // Listen on all interfaces on any port, with the appropriate protocol
+        let socket = if server_addr.is_ipv4() {
+            UdpSocket::bind("0.0.0.0:0")
+        } else {
+            UdpSocket::bind("[::]:0")
+        }
+        .or(Err("Could not establish a connection".to_string()))?;
 
         let current_time = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
