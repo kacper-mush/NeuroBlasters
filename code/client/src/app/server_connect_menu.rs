@@ -1,7 +1,7 @@
 use crate::app::room_menu::RoomMenu;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::{ClientState, Server};
-use crate::ui::{Button, Field, Text, TextField};
+use crate::ui::{Button, Field, TEXT_LARGE, TEXT_MID, Text, TextField};
 use macroquad::prelude::*;
 
 #[derive(Copy, Clone)]
@@ -35,12 +35,12 @@ impl View for ServerConnectMenu {
         let y_start = 270.;
         let sep = 80.;
 
-        Text::new_simple(30).draw("Connect to server", x_mid, 200.);
+        Text::new_scaled(TEXT_LARGE).draw("Connect to server", x_mid, 200.);
 
         let default_message = "Enter server name:";
 
         let message = self.message.as_deref().unwrap_or(default_message);
-        Text::new_simple(20).draw(message, x_mid, 230.);
+        Text::new_scaled(TEXT_MID).draw(message, x_mid, 230.);
 
         self.servername_field.draw_centered(x_mid, y_start, w, h);
 

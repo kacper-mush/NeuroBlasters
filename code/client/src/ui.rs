@@ -1,6 +1,25 @@
+use macroquad::miniquad::window::screen_size;
 use macroquad::prelude::*;
 
+pub const TEXT_SMALL: u16 = 16;
+pub const TEXT_MID: u16 = 20;
+pub const TEXT_LARGE: u16 = 30;
+pub const TEXT_HUGE: u16 = 40;
+
 const BACKSPACE_DELAY_SECONDS: f32 = 0.1;
+const CANONICAL_SCREEN_WIDTH: f32 = 1920.;
+const CANONICAL_SCREEN_HEIGHT: f32 = 1080.;
+
+fn get_ui_scaling_factor() -> f32 {
+    let (screen_w, screen_h) = screen_size();
+    let x_scaling = screen_w / CANONICAL_SCREEN_WIDTH;
+    let y_scaling = screen_h / CANONICAL_SCREEN_HEIGHT;
+    if x_scaling < y_scaling {
+        x_scaling
+    } else {
+        y_scaling
+    }
+}
 
 /// When drawing text, defines what the y position refers to
 #[derive(Clone)]
@@ -46,11 +65,37 @@ impl Text {
         }
     }
 
-    /// Simple helper to use for quick prototyping
-    pub fn new_simple(font_size: u16) -> Self {
+    /// Create default text with given font size and custom scaling
+    pub fn new_simple(font_size: u16, font_scale: f32) -> Self {
         Text {
             params: TextParams {
                 font_size,
+                font_scale,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// Create default text with given font size and scaled like an UI element
+    pub fn new_scaled(font_size: u16) -> Self {
+        Text {
+            params: TextParams {
+                font_size,
+                font_scale: get_ui_scaling_factor(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// Create title text
+    pub fn new_title() -> Self {
+        Text {
+            params: TextParams {
+                font_scale: get_ui_scaling_factor(),
+                font_size: TEXT_HUGE,
+                color: GRAY,
                 ..Default::default()
             },
             ..Default::default()

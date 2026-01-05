@@ -1,7 +1,7 @@
 use crate::app::room_lobby::RoomLobby;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, Field, Text, TextField};
+use crate::ui::{Button, Field, TEXT_LARGE, Text, TextField};
 use common::protocol::{ClientMessage, GameCode};
 use macroquad::prelude::*;
 
@@ -39,7 +39,7 @@ impl View for RoomMenu {
 
         self.button_pressed = None;
 
-        Text::new_simple(30).draw("Rooms", x_mid, 200.);
+        Text::new_scaled(TEXT_LARGE).draw("Rooms", x_mid, 200.);
         if button
             .draw_centered(x_mid, y_start, w, h, Some("Create"))
             .poll()
@@ -47,7 +47,7 @@ impl View for RoomMenu {
             self.button_pressed = Some(RoomMenuButtons::Create);
         }
 
-        Text::new_simple(30).draw("Room code:", x_mid, y_start + sep);
+        Text::new_scaled(TEXT_LARGE).draw("Room code:", x_mid, y_start + sep);
 
         self.room_code_field
             .draw_centered(x_mid, y_start + 2. * sep, w, h);
@@ -67,7 +67,7 @@ impl View for RoomMenu {
         }
 
         if let Some(message) = self.message.as_ref() {
-            Text::new_simple(30).draw(message, x_mid, y_start + 5. * sep);
+            Text::new_scaled(TEXT_LARGE).draw(message, x_mid, y_start + 5. * sep);
         }
     }
 

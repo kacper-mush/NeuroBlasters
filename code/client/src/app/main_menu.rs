@@ -33,15 +33,7 @@ impl View for MainMenu {
             ..Default::default()
         };
 
-        Text {
-            params: TextParams {
-                font_size: 40,
-                color: GRAY,
-                ..Default::default()
-            },
-            ..Default::default()
-        }
-        .draw("NeuroBlasters", x_mid, 100.);
+        Text::new_title().draw("NeuroBlasters", x_mid, 100.);
 
         let start_y = 200.;
         let button_w = 200.;

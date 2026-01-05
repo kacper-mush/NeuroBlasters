@@ -1,6 +1,6 @@
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, Field, Text};
+use crate::ui::{Button, Field, TEXT_LARGE, Text};
 use common::protocol::Team;
 use macroquad::prelude::*;
 
@@ -32,7 +32,7 @@ impl View for WinnerScreen {
             Color::new(0.0, 0.0, 0.0, 0.5),
         );
 
-        Text::new_simple(30).draw(
+        Text::new_scaled(TEXT_LARGE).draw(
             &format!("Winner is: {:?}!", self.winner).to_string(),
             x_mid,
             y_mid,

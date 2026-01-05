@@ -1,7 +1,7 @@
 use crate::app::game::Game;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, Field, Text};
+use crate::ui::{Button, Field, TEXT_HUGE, TEXT_LARGE, TEXT_MID, Text};
 use common::protocol::{ClientMessage, GameCode};
 use macroquad::prelude::*;
 
@@ -38,12 +38,12 @@ impl View for RoomLobby {
         let mut offset = 0.;
 
         let title = format!("Room code: {}", self.game_code.0);
-        Text::new_simple(40).draw(&title, x_mid, y_start + offset);
+        Text::new_scaled(TEXT_HUGE).draw(&title, x_mid, y_start + offset);
         offset += sep;
-        Text::new_simple(30).draw("Players:", x_mid, y_start + offset);
+        Text::new_scaled(TEXT_LARGE).draw("Players:", x_mid, y_start + offset);
         offset += sep;
         for name in &self.player_names {
-            Text::new_simple(25).draw(name, x_mid, y_start + offset);
+            Text::new_scaled(TEXT_MID).draw(name, x_mid, y_start + offset);
             offset += sep;
         }
 

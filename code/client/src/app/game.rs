@@ -1,7 +1,7 @@
 use crate::app::winner_screen::WinnerScreen;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{self, Field};
+use crate::ui::{Button, Field, TEXT_LARGE, TEXT_SMALL, Text};
 use common::game::engine::GameEngine;
 use common::protocol::{ClientMessage, InputPayload, Team};
 use macroquad::miniquad::window::screen_size;
@@ -121,7 +121,7 @@ impl View for Game {
             );
 
             // Draw nick
-            ui::Text::new_simple(scale(16.) as u16).draw(
+            Text::new_simple(TEXT_SMALL, scaling).draw(
                 &player.nickname,
                 transform_x(player.position.x),
                 transform_y(player.position.y - player.radius - hb_h - 30.),
@@ -137,7 +137,7 @@ impl View for Game {
             )
         }
 
-        crate::ui::Text::new_simple(20).draw(&get_fps().to_string(), 10., 10.);
+        Text::new_scaled(TEXT_SMALL).draw(&get_fps().to_string(), 10., 10.);
     }
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {
@@ -265,13 +265,13 @@ impl View for InGameMenu {
             Color::new(0.0, 0.0, 0.0, 0.5),
         );
 
-        ui::Text::new_simple(40).draw("PAUSED", x_mid, 150.);
+        Text::new_scaled(TEXT_LARGE).draw("PAUSED", x_mid, 150.);
 
-        self.resume_clicked = ui::Button::new(Field::default(), Some(default_text_params.clone()))
+        self.resume_clicked = Button::new(Field::default(), Some(default_text_params.clone()))
             .draw_centered(x_mid, 250., 250., 50., Some("Resume"))
             .poll();
 
-        self.quit_clicked = ui::Button::new(Field::default(), Some(default_text_params.clone()))
+        self.quit_clicked = Button::new(Field::default(), Some(default_text_params.clone()))
             .draw_centered(x_mid, 320., 250., 50., Some("Exit to Main Menu"))
             .poll();
     }
