@@ -2,8 +2,10 @@ use crate::app::options_menu::OptionsMenu;
 use crate::app::server_connect_menu::ServerConnectMenu;
 use crate::app::training_menu::TrainingMenu;
 use crate::app::{AppContext, Transition, View, ViewId};
-use crate::ui::{Button, Field, Text};
-use macroquad::prelude::*;
+use crate::ui::{
+    BANNER_TEXUTRE, BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout,
+    draw_texture_centered,
+};
 
 #[derive(Clone, Copy)]
 enum MainMenuButtons {
@@ -27,65 +29,52 @@ impl MainMenu {
 
 impl View for MainMenu {
     fn draw(&mut self, _ctx: &AppContext) {
-        let x_mid = screen_width() / 2.;
-        let default_text_params = TextParams {
-            font_size: 30,
-            ..Default::default()
-        };
+        let mut layout = Layout::new(100., 30.);
+        let x_mid = CANONICAL_SCREEN_MID_X;
 
-        Text {
-            params: TextParams {
-                font_size: 40,
-                color: GRAY,
-                ..Default::default()
-            },
-            ..Default::default()
-        }
-        .draw("NeuroBlasters", x_mid, 100.);
-
-        let start_y = 200.;
-        let button_w = 200.;
-        let button_h = 50.;
-        let sep = 80.;
-        let mut button = Button::new(Field::default(), Some(default_text_params.clone()));
+        draw_texture_centered(&BANNER_TEXUTRE, x_mid, layout.next(), 1.5);
+        layout.add(100.);
 
         self.button_pressed = None;
 
-        if button
-            .draw_centered(x_mid, start_y, button_w, button_h, Some("Train Models"))
+        if Button::default()
+            .draw_centered(
+                x_mid,
+                layout.next(),
+                BUTTON_W,
+                BUTTON_H,
+                Some("Train Models"),
+            )
             .poll()
         {
             self.button_pressed = Some(MainMenuButtons::Training);
         }
+        layout.add(BUTTON_H);
 
-        if button
+        if Button::default()
             .draw_centered(
                 x_mid,
-                start_y + sep,
-                button_w,
-                button_h,
+                layout.next(),
+                BUTTON_W,
+                BUTTON_H,
                 Some("Multiplayer"),
             )
             .poll()
         {
             self.button_pressed = Some(MainMenuButtons::Multiplayer);
         }
+        layout.add(BUTTON_H);
 
-        if button
-            .draw_centered(
-                x_mid,
-                start_y + 2. * sep,
-                button_w,
-                button_h,
-                Some("Options"),
-            )
+        if Button::default()
+            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Options"))
             .poll()
         {
             self.button_pressed = Some(MainMenuButtons::Options);
         }
+        layout.add(BUTTON_H);
 
-        if button
-            .draw_centered(x_mid, start_y + 3. * sep, button_w, button_h, Some("Quit"))
+        if Button::default()
+            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Quit"))
             .poll()
         {
             self.button_pressed = Some(MainMenuButtons::Quit);

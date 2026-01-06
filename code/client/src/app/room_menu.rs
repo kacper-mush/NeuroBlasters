@@ -1,7 +1,11 @@
+use crate::app::room_creation::RoomCreation;
 use crate::app::room_lobby::RoomLobby;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, Field, Text, TextField};
+use crate::ui::{
+    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_MID, Text,
+    TextField,
+};
 use common::protocol::{ClientMessage, GameCode};
 use macroquad::prelude::*;
 
@@ -22,7 +26,7 @@ impl RoomMenu {
     pub fn new() -> Self {
         RoomMenu {
             button_pressed: None,
-            room_code_field: TextField::new(Field::default(), TextParams::default(), 10),
+            room_code_field: TextField::new_simple(10),
             message: None,
         }
     }
@@ -30,44 +34,51 @@ impl RoomMenu {
 
 impl View for RoomMenu {
     fn draw(&mut self, _ctx: &AppContext) {
-        let x_mid = screen_width() / 2.;
-        let mut button = Button::new(Field::default(), Some(TextParams::default()));
-        let w = 300.;
-        let h = 50.;
-        let y_start = 270.;
-        let sep = 80.;
+        let x_mid = CANONICAL_SCREEN_MID_X;
+        let el_w = BUTTON_W;
+        let el_h = BUTTON_H;
+        let mut layout = Layout::new(100., 30.);
 
         self.button_pressed = None;
 
-        Text::new_simple(30).draw("Rooms", x_mid, 200.);
-        if button
-            .draw_centered(x_mid, y_start, w, h, Some("Create"))
+        Text::new_title().draw("Rooms", x_mid, layout.next());
+        layout.add(70.);
+
+        if Button::default()
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Create new"))
             .poll()
         {
             self.button_pressed = Some(RoomMenuButtons::Create);
         }
+        layout.add(el_h);
 
-        Text::new_simple(30).draw("Room code:", x_mid, y_start + sep);
+        Text::new_scaled(TEXT_MID).draw("Room code:", x_mid, layout.next());
+        layout.add(20.);
+
+        let left_x = x_mid - el_w / 4.;
+        let right_x = x_mid + el_w / 4.;
 
         self.room_code_field
-            .draw_centered(x_mid, y_start + 2. * sep, w, h);
+            .draw_centered(left_x, layout.next(), el_w / 2., el_h);
 
-        if button
-            .draw_centered(x_mid, y_start + 3. * sep, w, h, Some("Join"))
+        if Button::default()
+            .draw_centered(right_x, layout.next(), el_w / 2., el_h, Some("Join"))
             .poll()
         {
             self.button_pressed = Some(RoomMenuButtons::Join);
         }
+        layout.add(el_h);
 
-        if button
-            .draw_centered(x_mid, y_start + 4. * sep, w, h, Some("Back"))
+        if Button::default()
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Back"))
             .poll()
         {
             self.button_pressed = Some(RoomMenuButtons::Back);
         }
+        layout.add(el_h);
 
         if let Some(message) = self.message.as_ref() {
-            Text::new_simple(30).draw(message, x_mid, y_start + 5. * sep);
+            Text::new_scaled(TEXT_LARGE).draw(message, x_mid, layout.next());
         }
     }
 
@@ -106,14 +117,7 @@ impl View for RoomMenu {
 
         match self.button_pressed {
             Some(button) => match button {
-                RoomMenuButtons::Create => {
-                    let res = server.send_client_message(ClientMessage::CreateGame);
-                    if res.is_err() {
-                        // This is more of a "could not send the request", but this is simplified for now
-                        self.message = Some("Could not create the room!".into());
-                    }
-                    Transition::None
-                }
+                RoomMenuButtons::Create => Transition::Push(Box::new(RoomCreation::new())),
                 RoomMenuButtons::Join => {
                     let res = server.send_client_message(ClientMessage::JoinGame {
                         game_code: GameCode(self.room_code_field.text()),

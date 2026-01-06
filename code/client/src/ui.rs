@@ -1,6 +1,129 @@
+use futures::executor::block_on;
+use macroquad::miniquad::window::screen_size;
 use macroquad::prelude::*;
+use once_cell::sync::Lazy;
+
+pub const TEXT_SMALL: u16 = 20;
+pub const TEXT_MID: u16 = 25;
+pub const TEXT_LARGE: u16 = 35;
+pub const TEXT_HUGE: u16 = 50;
+
+const GLOBAL_SCALING: f32 = 1.5;
+pub const CANONICAL_SCREEN_WIDTH: f32 = 1920. / GLOBAL_SCALING;
+pub const CANONICAL_SCREEN_HEIGHT: f32 = 1080. / GLOBAL_SCALING;
+pub const CANONICAL_SCREEN_MID_X: f32 = CANONICAL_SCREEN_WIDTH / 2.;
+pub const CANONICAL_SCREEN_MID_Y: f32 = CANONICAL_SCREEN_HEIGHT / 2.;
+
+pub const FIELD_COLOR: Color = Color::from_rgba(0, 119, 206, 255);
+pub const FIELD_HOVER_COLOR: Color = Color::from_rgba(0, 72, 125, 255);
+pub const BACKGROUND_COLOR: Color = Color::from_rgba(2, 25, 89, 255);
+pub const TEXT_COLOR: Color = Color::from_rgba(224, 224, 224, 255);
+
+/// Typical button width
+pub const BUTTON_W: f32 = 300.;
+/// Typical button height
+pub const BUTTON_H: f32 = 55.;
 
 const BACKSPACE_DELAY_SECONDS: f32 = 0.1;
+
+pub static MAIN_FONT: Lazy<Font> = Lazy::new(|| {
+    let mut font = block_on(load_ttf_font("assets/arcade_riders.ttf")).unwrap();
+    font.set_filter(FilterMode::Nearest); // Better results for a pixelated font
+    font
+});
+
+pub static BANNER_TEXUTRE: Lazy<Texture2D> = Lazy::new(|| {
+    let banner = block_on(load_texture("assets/banner.png")).unwrap();
+    banner.set_filter(FilterMode::Nearest); // Better for Pixel art
+    banner
+});
+
+fn get_ui_scaling_factor() -> f32 {
+    calc_transform(CANONICAL_SCREEN_WIDTH, CANONICAL_SCREEN_HEIGHT).0
+}
+
+fn get_ui_transform() -> (f32, f32, f32) {
+    calc_transform(CANONICAL_SCREEN_WIDTH, CANONICAL_SCREEN_HEIGHT)
+}
+
+pub fn default_text_params() -> TextParams<'static> {
+    TextParams {
+        font: Some(&MAIN_FONT),
+        font_scale: 1.,
+        color: TEXT_COLOR,
+        ..Default::default()
+    }
+}
+
+fn scale_dims(x: f32, y: f32, w: f32, h: f32) -> (f32, f32, f32, f32) {
+    let (scale, transform_x, transform_y) = get_ui_transform();
+    let x = x * scale + transform_x;
+    let y = y * scale + transform_y;
+    let w = w * scale;
+    let h = h * scale;
+    (x, y, w, h)
+}
+
+pub fn calc_transform(canonical_w: f32, canonical_h: f32) -> (f32, f32, f32) {
+    let (screen_w, screen_h) = screen_size();
+    let x_scaling = screen_w / canonical_w;
+    let y_scaling = screen_h / canonical_h;
+    let x_offset;
+    let y_offset;
+    let scaling;
+
+    // Choose scaling and offsets so that the map perfectly fits 1 dimension
+    // and is centered on the second dimension
+    if x_scaling < y_scaling {
+        scaling = x_scaling;
+        x_offset = 0.;
+        y_offset = f32::abs(screen_h - canonical_h * scaling) / 2.;
+    } else {
+        scaling = y_scaling;
+        x_offset = f32::abs(screen_w - canonical_w * scaling) / 2.;
+        y_offset = 0.;
+    }
+
+    (scaling, x_offset, y_offset)
+}
+
+pub struct Layout {
+    current_pos: f32,
+    padding: f32,
+}
+
+impl Layout {
+    pub fn new(start_pos: f32, padding: f32) -> Self {
+        Layout {
+            current_pos: start_pos,
+            padding,
+        }
+    }
+
+    pub fn next(&self) -> f32 {
+        self.current_pos
+    }
+
+    pub fn add(&mut self, el_size: f32) {
+        self.current_pos += el_size + self.padding
+    }
+}
+
+pub fn draw_texture_centered(texture: &Texture2D, x: f32, y: f32, scale: f32) {
+    let w = texture.width() * scale;
+    let h = texture.height() * scale;
+    let (x, y, w, h) = scale_dims(x - w / 2., y - h / 2., w, h);
+    draw_texture_ex(
+        texture,
+        x,
+        y,
+        WHITE,
+        DrawTextureParams {
+            dest_size: Some(Vec2::new(w, h)), // width, height in pixels
+            ..Default::default()
+        },
+    );
+}
 
 /// When drawing text, defines what the y position refers to
 #[derive(Clone)]
@@ -46,59 +169,97 @@ impl Text {
         }
     }
 
-    /// Simple helper to use for quick prototyping
-    pub fn new_simple(font_size: u16) -> Self {
+    /// Create default text with given font size and custom scaling
+    pub fn new_simple(font_size: u16, font_scale: f32) -> Self {
+        // We don't scale using the bult-in scaling. We use font sizes to get nicer
+        // results.
         Text {
             params: TextParams {
-                font_size,
-                ..Default::default()
+                font_size: (font_size as f32 * font_scale).round() as u16,
+                ..default_text_params()
             },
             ..Default::default()
         }
     }
 
-    pub fn draw(&self, text: &str, x: f32, y: f32) {
-        let text_dims = measure_text(
-            text,
-            self.params.font,
-            self.params.font_size,
-            self.params.font_scale,
-        );
+    /// Create default text with given font size and scaled like an UI element
+    pub fn new_scaled(font_size: u16) -> Self {
+        Text {
+            params: TextParams {
+                font_size,
+                ..default_text_params()
+            },
+            ..Default::default()
+        }
+    }
 
+    /// Create title text
+    pub fn new_title() -> Self {
+        Text {
+            params: TextParams {
+                font_size: TEXT_HUGE,
+                ..default_text_params()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// User provides x, y coordinates that are already transformed
+    pub fn draw_no_scaling(&self, text: &str, x: f32, y: f32) {
+        let (o_x, o_y) = self.calculate_font_offset(text, &self.params);
+
+        draw_text_ex(text, x + o_x, y + o_y, self.params.clone());
+    }
+
+    /// Will be scaled as an UI element
+    pub fn draw(&self, text: &str, x: f32, y: f32) {
+        let (scale, transform_x, transform_y) = get_ui_transform();
+
+        // Scale font
+        let params = TextParams {
+            font_size: (self.params.font_size as f32 * scale).round() as u16,
+            ..self.params
+        };
+
+        // Transform position
+        let x = x * scale + transform_x;
+        let y = y * scale + transform_y;
+
+        let (o_x, o_y) = self.calculate_font_offset(text, &params);
+
+        draw_text_ex(text, x + o_x, y + o_y, params);
+    }
+
+    fn calculate_font_offset(&self, text: &str, params: &TextParams<'static>) -> (f32, f32) {
+        let text_dims = measure_text(text, params.font, params.font_size, params.font_scale);
         let x = match self.horizontal_positioning {
-            TextHorizontalPositioning::Left => x,
-            TextHorizontalPositioning::Right => x - text_dims.width,
-            TextHorizontalPositioning::Center => x - text_dims.width / 2.,
+            TextHorizontalPositioning::Left => 0.,
+            TextHorizontalPositioning::Right => -text_dims.width,
+            TextHorizontalPositioning::Center => -text_dims.width / 2.,
         };
 
         let y = match self.vertical_positioning {
             // We need to add the offset because the draw_text function draws regarding to the text baseline,
             // and not its lowest nor highest point. offset_y fixes that.
-            TextVerticalPositioning::CenterExact => {
-                y - (text_dims.height / 2.) + text_dims.offset_y
-            }
+            TextVerticalPositioning::CenterExact => -(text_dims.height / 2.) + text_dims.offset_y,
             // We use approx_dims for y calculation so the result is consistent for any text with these params
             TextVerticalPositioning::CenterConsistent => {
                 // "Hg" is a good approximate of highest text, because it has high-ascent and deep-descent glyphs.
-                let approx_dims = measure_text(
-                    "Hg",
-                    self.params.font,
-                    self.params.font_size,
-                    self.params.font_scale,
-                );
-                y - (approx_dims.height / 2.) + approx_dims.offset_y
+                let approx_dims =
+                    measure_text("Hg", params.font, params.font_size, params.font_scale);
+                -(approx_dims.height / 2.) + approx_dims.offset_y
             }
-            TextVerticalPositioning::Default => y,
+            TextVerticalPositioning::Default => 0.,
         };
 
-        draw_text_ex(text, x, y, self.params.clone());
+        (x, y)
     }
 }
 
 impl Default for Text {
     fn default() -> Self {
         Text {
-            params: Default::default(),
+            params: default_text_params(),
             vertical_positioning: TextVerticalPositioning::CenterExact,
             horizontal_positioning: TextHorizontalPositioning::Center,
         }
@@ -115,6 +276,8 @@ pub(crate) struct Field {
 
 impl Field {
     pub fn draw(&mut self, x: f32, y: f32, w: f32, h: f32) -> &mut Self {
+        let (x, y, w, h) = scale_dims(x, y, w, h);
+
         let is_hovered = self.is_hovered(x, y, w, h);
         let bg_color = if is_hovered {
             self.hover_color
@@ -150,10 +313,10 @@ impl Field {
 impl Default for Field {
     fn default() -> Self {
         Self {
-            color: GRAY,
-            hover_color: DARKGRAY,
+            color: FIELD_COLOR,
+            hover_color: FIELD_HOVER_COLOR,
             outline_color: BLACK,
-            outline_thickness: 2.,
+            outline_thickness: 4.,
             draw_cache: None,
         }
     }
@@ -204,6 +367,17 @@ impl Button {
     }
 }
 
+impl Default for Button {
+    fn default() -> Self {
+        let params = TextParams {
+            font_size: TEXT_LARGE,
+            ..default_text_params()
+        };
+
+        Button::new(Field::default(), Some(params))
+    }
+}
+
 pub(crate) struct TextField {
     field: Field,
     text: Text,
@@ -229,9 +403,14 @@ impl TextField {
         }
     }
 
+    pub fn new_simple(max_len: u32) -> Self {
+        TextField::new(Field::default(), default_text_params(), max_len)
+    }
+
     pub fn draw(&mut self, x: f32, y: f32, w: f32, h: f32) {
         self.field.draw(x, y, w, h);
-        self.text.draw(&self.text_string, x, y + h / 2.);
+        let left_pad = 0.05 * w;
+        self.text.draw(&self.text_string, x + left_pad, y + h / 2.);
     }
 
     pub fn draw_centered(&mut self, x: f32, y: f32, w: f32, h: f32) {
