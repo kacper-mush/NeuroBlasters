@@ -5,7 +5,7 @@ use tracing::info;
 
 use crate::game::Game;
 use common::protocol::{
-    ClientId, CrateGameReponse, GameCode, GameUpdate, GameState, InputPayload, JoinGameResponse,
+    ClientId, CrateGameReponse, GameCode, GameState, GameUpdate, InputPayload, JoinGameResponse,
     LeaveGameResponse, MapId, StartCountdownResponse,
 };
 
@@ -34,7 +34,7 @@ impl GameManager {
 
             let update = GameUpdate {
                 snapshot: game.snapshot(),
-                events
+                events,
             };
 
             updates.push((game.client_ids(), update));
@@ -53,14 +53,18 @@ impl GameManager {
 
         let mut game = Game::new(game_master, map_id, rounds);
 
-        if let Err(e) = game.add_player(game_master, nickname) {
-            return CrateGameReponse::Error(e);
-        }
+        let player_id = match game.add_player(game_master, nickname) {
+            Ok(id) => id,
+            Err(e) => return CrateGameReponse::Error(e),
+        };
 
         self.games.insert(game_code.clone(), game);
-        info!("Game created: {:?}", game_code);  
+        info!("Game created: {:?}", game_code);
 
-        CrateGameReponse::Ok { game_code }
+        CrateGameReponse::Ok {
+            game_code,
+            player_id,
+        }
     }
 
     pub fn join_game(
@@ -78,7 +82,7 @@ impl GameManager {
         }
 
         match game.add_player(client_id, nickname) {
-            Ok(()) => JoinGameResponse::Ok,
+            Ok(player_id) => JoinGameResponse::Ok { player_id },
             Err(e) => JoinGameResponse::Error(e),
         }
     }
@@ -125,7 +129,11 @@ impl GameManager {
         Ok(())
     }
 
-    pub fn remove_player(&mut self, game_code: &GameCode, client_id: ClientId) -> Result<(), String> {
+    pub fn remove_player(
+        &mut self,
+        game_code: &GameCode,
+        client_id: ClientId,
+    ) -> Result<(), String> {
         let game = self.games.get_mut(game_code).ok_or("Game does not exist")?;
         game.remove_player(client_id)?;
         // TODO: Remove game if no players left

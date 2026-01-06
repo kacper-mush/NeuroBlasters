@@ -4,6 +4,7 @@ use bincode::{Decode, Encode};
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
 
+pub type PlayerId = u16;
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct RectWall {
@@ -21,7 +22,7 @@ pub enum Team {
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct Player {
-    pub id: ClientId,
+    pub id: PlayerId,
     pub nickname: String,
     pub team: Team,
     #[bincode(with_serde)]
@@ -38,14 +39,13 @@ pub struct Player {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct Projectile {
     pub id: u64,
-    pub owner_id: ClientId,
+    pub owner_id: PlayerId,
     #[bincode(with_serde)]
     pub position: Vec2,
     #[bincode(with_serde)]
     pub velocity: Vec2,
     pub radius: f32,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct InputPayload {
@@ -82,8 +82,8 @@ pub enum GameState {
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct KillEvent {
-    pub killer_id: ClientId,
-    pub victim_id: ClientId,
+    pub killer_id: PlayerId,
+    pub victim_id: PlayerId,
 }
 
 pub type MapId = u16;

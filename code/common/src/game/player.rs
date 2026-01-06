@@ -1,11 +1,10 @@
 use glam::Vec2;
-use renet::ClientId;
 
-use crate::protocol::{Player, Team};
+use crate::net::protocol::objects::{Player, PlayerId, Team};
 
 impl Player {
     // TODO: remove magic numbers
-    pub fn new(id: ClientId, nickname: String, team: Team, position: Vec2) -> Self {
+    pub fn new(id: PlayerId, nickname: String, team: Team, position: Vec2) -> Self {
         Player {
             id,
             team,

@@ -19,14 +19,12 @@ impl Countdown {
 
     /// Returns true if the countdown is finished, false otherwise.
     pub fn tick(&mut self) -> bool {
-        if self.start_time.elapsed() >= self.duration {
-            true
-        } else {
-            false
-        }
+        self.start_time.elapsed() >= self.duration
     }
 
     pub fn seconds_left(&self) -> u64 {
-        self.duration.as_secs().saturating_sub(self.start_time.elapsed().as_secs())
+        self.duration
+            .as_secs()
+            .saturating_sub(self.start_time.elapsed().as_secs())
     }
 }

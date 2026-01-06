@@ -1,10 +1,12 @@
-use common::protocol::GameCode;
+use common::protocol::{GameCode, PlayerId};
 
 #[derive(Clone, Debug)]
 pub enum ClientState {
     Lobby,
     InGame {
         game_code: GameCode,
+        #[allow(dead_code)] // Might be used in the future.
+        player_id: PlayerId,
     },
 }
 

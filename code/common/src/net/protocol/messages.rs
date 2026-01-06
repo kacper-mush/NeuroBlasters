@@ -1,7 +1,7 @@
 pub use renet::ClientId;
 
+use super::objects::{GameSnapshot, InputPayload, KillEvent, MapId, PlayerId, Team};
 use bincode::{Decode, Encode};
-use super::objects::{InputPayload, GameSnapshot, Team, KillEvent, MapId};
 
 pub const API_VERSION: ApiVersion = 3;
 
@@ -14,7 +14,7 @@ pub enum ClientMessage {
     },
     CreateGame {
         map: MapId,
-        rounds: u8
+        rounds: u8,
     },
     JoinGame {
         game_code: GameCode,
@@ -63,13 +63,16 @@ pub enum HandshakeResponse {
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum CrateGameReponse {
-    Ok { game_code: GameCode },
+    Ok {
+        game_code: GameCode,
+        player_id: PlayerId,
+    },
     Error(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum JoinGameResponse {
-    Ok,
+    Ok { player_id: PlayerId },
     Error(String),
 }
 

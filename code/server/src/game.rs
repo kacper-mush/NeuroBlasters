@@ -2,16 +2,16 @@ use crate::countdown::Countdown;
 use common::game::engine::GameEngine;
 use common::protocol::{
     ClientId, GameEvent, GameSnapshot, GameState as GameStateInfo, InputPayload, MapDefinition,
-    MapId,
+    MapId, PlayerId,
 };
 use std::collections::HashMap;
 
 pub struct Game {
     state: GameState,
-    players: HashMap<ClientId, String>,
+    players: HashMap<ClientId, (PlayerId, String)>, // client -> (player_id, nickname)
     game_master: ClientId,
     engine: GameEngine,
-    inputs: HashMap<ClientId, InputPayload>,
+    inputs: HashMap<PlayerId, InputPayload>,
     rounds_left: u8,
     map_id: MapId,
     pub outgoing_events: Vec<GameEvent>,
@@ -52,16 +52,24 @@ impl Game {
         self.players.keys().copied().collect()
     }
 
-    pub fn add_player(&mut self, client_id: ClientId, nickname: String) -> Result<(), String> {
-        self.engine.add_player(client_id, nickname.clone())?;
-        self.players.insert(client_id, nickname.clone());
+    pub fn add_player(
+        &mut self,
+        client_id: ClientId,
+        nickname: String,
+    ) -> Result<PlayerId, String> {
+        let player_id = self.engine.add_player(nickname.clone())?;
+        self.players
+            .insert(client_id, (player_id, nickname.clone()));
         self.outgoing_events.push(GameEvent::PlayerJoined(nickname));
-        Ok(())
+        Ok(player_id)
     }
 
     pub fn remove_player(&mut self, client_id: ClientId) -> Result<(), String> {
-        let nickname = self.players.remove(&client_id).ok_or("Player not found".to_string())?;
-        self.engine.remove_player(client_id);
+        let (player_id, nickname) = self
+            .players
+            .remove(&client_id)
+            .ok_or("Player not found".to_string())?;
+        self.engine.remove_player(player_id);
         self.outgoing_events.push(GameEvent::PlayerLeft(nickname));
         Ok(())
     }
@@ -80,24 +88,35 @@ impl Game {
     }
 
     pub fn handle_player_input(&mut self, client_id: ClientId, input: InputPayload) {
+        let Some((player_id, _)) = self.players.get(&client_id) else {
+            return;
+        };
         let input = if let GameState::Battle = self.state {
             input
         } else {
             // Players can't shoot if not in battle.
-            InputPayload { shoot: false, ..input }
+            InputPayload {
+                shoot: false,
+                ..input
+            }
         };
-        self.inputs.insert(client_id, input);
+        self.inputs.insert(*player_id, input);
     }
 
     pub fn tick(&mut self, dt: f32) {
-        let result = self.engine.tick(dt, &self.inputs);
+        let result = self.engine.tick(dt, self.inputs.clone());
         self.inputs.clear();
 
         match &mut self.state {
             GameState::Countdown(countdown) => {
                 if countdown.tick() {
                     self.state = GameState::Battle;
-                    self.engine.move_players_to_spawnpoints();
+                    let active_player_ids: Vec<PlayerId> = self
+                        .players
+                        .values()
+                        .map(|(player_id, _)| *player_id)
+                        .collect();
+                    self.engine.move_players_to_spawnpoints(&active_player_ids);
                 }
             }
             GameState::Battle => {

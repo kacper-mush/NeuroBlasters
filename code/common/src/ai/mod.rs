@@ -2,7 +2,7 @@ pub mod pathfinding;
 
 use self::pathfinding::find_path_a_star;
 use crate::game::PROJECTILE_SPEED;
-use crate::net::protocol::objects::{InputPayload, MapDefinition, Player, Projectile};
+use crate::net::protocol::objects::{InputPayload, MapDefinition, Player, PlayerId, Projectile};
 use glam::Vec2;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -27,19 +27,41 @@ pub struct BotContext<'a> {
     pub rng: &'a mut StdRng,
 }
 
+// Clone support for Policy
+pub trait PolicyClone {
+    fn clone_box(&self) -> Box<dyn Policy>;
+}
+
+impl<T> PolicyClone for T
+where
+    T: 'static + Policy + Clone,
+{
+    fn clone_box(&self) -> Box<dyn Policy> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn Policy> {
+    fn clone(&self) -> Box<dyn Policy> {
+        self.clone_box()
+    }
+}
+
 /// Allows us to swap "Scripted Logic" with "Neural Networks" instantly.
-pub trait Policy: Send + Sync {
+pub trait Policy: Send + Sync + PolicyClone {
     fn compute_input(&mut self, ctx: &mut BotContext) -> InputPayload;
 }
 
+#[derive(Clone)]
 pub struct BotAgent {
+    pub id: PlayerId,
     pub difficulty: BotDifficulty,
     policy: Box<dyn Policy>, // The active brain
     rng: StdRng,
 }
 
 impl BotAgent {
-    pub fn new(difficulty: BotDifficulty, seed: u64) -> Self {
+    pub fn new(id: PlayerId, difficulty: BotDifficulty, seed: u64) -> Self {
         let rng = StdRng::seed_from_u64(seed);
 
         // Factory: Pick the right brain based on difficulty
@@ -55,6 +77,7 @@ impl BotAgent {
         };
 
         Self {
+            id,
             difficulty,
             policy,
             rng,
@@ -207,6 +230,7 @@ enum ScriptedBehavior {
     Terminator,
 }
 
+#[derive(Clone)]
 struct ScriptedPolicy {
     behavior: ScriptedBehavior,
     state_timer: f32,
@@ -420,6 +444,7 @@ impl Policy for ScriptedPolicy {
 }
 // --- Dummy Policy ---
 
+#[derive(Clone)]
 struct DummyPolicy;
 impl Policy for DummyPolicy {
     fn compute_input(&mut self, _ctx: &mut BotContext) -> InputPayload {
@@ -434,7 +459,7 @@ impl Policy for DummyPolicy {
 
 // ---  RL Policy (Mocked) ---
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct RlPolicy {
     // Future: This will hold your 'burn' model
 }
