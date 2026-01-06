@@ -2,7 +2,8 @@ use crate::app::winner_screen::WinnerScreen;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
 use crate::ui::{
-    Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_SMALL, Text, calc_transform,
+    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_SMALL, Text,
+    calc_transform,
 };
 use common::game::engine::GameEngine;
 use common::protocol::{ClientMessage, InputPayload, Team};
@@ -230,8 +231,8 @@ impl InGameMenu {
 impl View for InGameMenu {
     fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = CANONICAL_SCREEN_MID_X;
-        let button_w = 250.;
-        let button_h = 50.;
+        let button_w = BUTTON_W;
+        let button_h = BUTTON_H;
         let mut layout = Layout::new(150., 30.);
 
         // Menu grays the previous view

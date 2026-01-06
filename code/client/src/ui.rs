@@ -32,6 +32,12 @@ pub static MAIN_FONT: Lazy<Font> = Lazy::new(|| {
     font
 });
 
+pub static BANNER_TEXUTRE: Lazy<Texture2D> = Lazy::new(|| {
+    let banner = block_on(load_texture("assets/banner.png")).unwrap();
+    banner.set_filter(FilterMode::Nearest); // Better for Pixel art
+    banner
+});
+
 fn get_ui_scaling_factor() -> f32 {
     calc_transform(CANONICAL_SCREEN_WIDTH, CANONICAL_SCREEN_HEIGHT).0
 }

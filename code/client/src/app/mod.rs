@@ -17,7 +17,6 @@ mod winner_screen;
 // Global data that persists across views
 pub(crate) struct AppContext {
     pub server: Option<Server>,
-    pub banner_texture: Texture2D,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -89,15 +88,9 @@ pub(crate) struct App {
 
 impl App {
     pub async fn new() -> Self {
-        let banner = load_texture("assets/banner.png").await.unwrap();
-        banner.set_filter(FilterMode::Nearest);
-
         App {
             stack: vec![Box::new(MainMenu::new())],
-            context: AppContext {
-                server: None,
-                banner_texture: banner,
-            },
+            context: AppContext { server: None },
         }
     }
 

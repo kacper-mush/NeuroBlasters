@@ -3,7 +3,8 @@ use crate::app::server_connect_menu::ServerConnectMenu;
 use crate::app::training_menu::TrainingMenu;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::ui::{
-    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, draw_texture_centered,
+    BANNER_TEXUTRE, BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout,
+    draw_texture_centered,
 };
 
 #[derive(Clone, Copy)]
@@ -27,11 +28,11 @@ impl MainMenu {
 }
 
 impl View for MainMenu {
-    fn draw(&mut self, ctx: &AppContext) {
+    fn draw(&mut self, _ctx: &AppContext) {
         let mut layout = Layout::new(100., 30.);
         let x_mid = CANONICAL_SCREEN_MID_X;
 
-        draw_texture_centered(&ctx.banner_texture, x_mid, layout.next(), 1.5);
+        draw_texture_centered(&BANNER_TEXUTRE, x_mid, layout.next(), 1.5);
         layout.add(100.);
 
         self.button_pressed = None;
