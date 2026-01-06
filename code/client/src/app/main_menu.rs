@@ -2,7 +2,7 @@ use crate::app::options_menu::OptionsMenu;
 use crate::app::server_connect_menu::ServerConnectMenu;
 use crate::app::training_menu::TrainingMenu;
 use crate::app::{AppContext, Transition, View, ViewId};
-use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Layout, Text};
+use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Layout, draw_texture_centered};
 
 #[derive(Clone, Copy)]
 enum MainMenuButtons {
@@ -25,13 +25,13 @@ impl MainMenu {
 }
 
 impl View for MainMenu {
-    fn draw(&mut self, _ctx: &AppContext) {
+    fn draw(&mut self, ctx: &AppContext) {
         let mut layout = Layout::new(100., 30.);
         let x_mid = CANONICAL_SCREEN_MID_X;
         let button_w = 200.;
         let button_h = 50.;
 
-        Text::new_title().draw("NeuroBlasters", x_mid, layout.next());
+        draw_texture_centered(&ctx.banner_texture, x_mid, layout.next(), 1.5);
         layout.add(100.);
 
         self.button_pressed = None;

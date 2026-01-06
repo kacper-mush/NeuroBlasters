@@ -20,3 +20,14 @@ impl Player {
         }
     }
 }
+
+pub fn is_valid_username(username: &str) -> bool {
+    let len = username.len();
+    if !(3..=16).contains(&len) {
+        return false;
+    }
+
+    username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+}

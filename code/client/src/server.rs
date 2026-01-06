@@ -4,6 +4,7 @@ use std::{mem, net::ToSocketAddrs};
 use common::{
     codec::{decode_server_message, encode_client_message},
     game::engine::GameEngine,
+    game::player::is_valid_username,
     protocol::{
         ApiVersion, ClientMessage, GameCode, GameEvent, GameStateSnapshot, MapDefinition,
         ServerMessage, Team,
@@ -70,7 +71,10 @@ const RELIABLE_CHANNEL_ID: u8 = 0;
 const API_VERSION: ApiVersion = ApiVersion(2);
 
 impl Server {
-    pub fn new(mut servername: String, nickname: String) -> Result<Self, String> {
+    pub fn new(mut servername: String, username: String) -> Result<Self, String> {
+        if !is_valid_username(&username) {
+            return Err("Username invalid! Only alphanumerics and underscores allowed.".into());
+        }
         // If no port suffix present, append the 8080 port which is the default for our server
         if !servername.contains(':') {
             servername.push_str(":8080");
@@ -119,12 +123,11 @@ impl Server {
             client_state: ClientState::Disconnected,
         };
 
-        let r_num: u32 = rand::rng().random::<u32>() % 420;
         // TODO: Actual nickname adding
         server
             .send_client_message(ClientMessage::Handshake {
                 api_version: API_VERSION,
-                nickname: format!("{}{}", nickname, r_num),
+                nickname: username,
             })
             .or(Err("Could not send handshake message"))?;
 

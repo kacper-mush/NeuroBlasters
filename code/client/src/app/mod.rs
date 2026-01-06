@@ -1,10 +1,13 @@
 use crate::app::main_menu::MainMenu;
 use crate::server::Server;
+use crate::ui::BACKGROUND_COLOR;
 use macroquad::prelude::*;
 
 mod game;
 mod main_menu;
 mod options_menu;
+mod popup;
+mod room_creation;
 mod room_lobby;
 mod room_menu;
 mod server_connect_menu;
@@ -14,6 +17,7 @@ mod winner_screen;
 // Global data that persists across views
 pub(crate) struct AppContext {
     pub server: Option<Server>,
+    pub banner_texture: Texture2D,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -27,6 +31,8 @@ pub(crate) enum ViewId {
     InGameMenu,
     OptionsMenu,
     WinnerScreen,
+    Popup,
+    RoomCreation,
 }
 
 pub(crate) enum Transition {
@@ -82,10 +88,16 @@ pub(crate) struct App {
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
+        let banner = load_texture("assets/banner.png").await.unwrap();
+        banner.set_filter(FilterMode::Nearest);
+
         App {
             stack: vec![Box::new(MainMenu::new())],
-            context: AppContext { server: None },
+            context: AppContext {
+                server: None,
+                banner_texture: banner,
+            },
         }
     }
 
@@ -109,7 +121,7 @@ impl App {
                 self.stack[i].shadow_update(&mut self.context);
             }
 
-            clear_background(DARKBLUE);
+            clear_background(BACKGROUND_COLOR);
 
             // Find the first state that is not letting states beneath it be drawn.
             // Start from the top of the stack

@@ -1,10 +1,8 @@
+use crate::app::popup::Popup;
 use crate::app::room_menu::RoomMenu;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::{ClientState, Server};
-use crate::ui::{
-    Button, CANONICAL_SCREEN_MID_X, Field, Layout, TEXT_LARGE, TEXT_MID, Text, TextField,
-};
-use macroquad::prelude::*;
+use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_MID, Text, TextField};
 
 #[derive(Copy, Clone)]
 enum ServerConnectButtons {
@@ -14,16 +12,16 @@ enum ServerConnectButtons {
 
 pub(crate) struct ServerConnectMenu {
     button_pressed: Option<ServerConnectButtons>,
-    message: Option<String>,
     servername_field: TextField,
+    username_field: TextField,
 }
 
 impl ServerConnectMenu {
     pub fn new() -> Self {
         ServerConnectMenu {
             button_pressed: None,
-            message: None,
-            servername_field: TextField::new(Field::default(), TextParams::default(), 30),
+            servername_field: TextField::new_simple(30),
+            username_field: TextField::new_simple(20),
         }
     }
 }
@@ -38,13 +36,17 @@ impl View for ServerConnectMenu {
         Text::new_scaled(TEXT_LARGE).draw("Connect to server", x_mid, layout.next());
         layout.add(40.);
 
-        let default_message = "Enter server name:";
-
-        let message = self.message.as_deref().unwrap_or(default_message);
-        Text::new_scaled(TEXT_MID).draw(message, x_mid, layout.next());
+        Text::new_scaled(TEXT_MID).draw("Enter server name:", x_mid, layout.next());
         layout.add(20.);
 
         self.servername_field
+            .draw_centered(x_mid, layout.next(), el_w, el_h);
+        layout.add(el_h);
+
+        Text::new_scaled(TEXT_MID).draw("Enter username:", x_mid, layout.next());
+        layout.add(20.);
+
+        self.username_field
             .draw_centered(x_mid, layout.next(), el_w, el_h);
         layout.add(el_h);
 
@@ -68,14 +70,16 @@ impl View for ServerConnectMenu {
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {
         self.servername_field.update();
+        self.username_field.update();
 
         if let Some(server) = &ctx.server {
             match server.client_state {
                 ClientState::Error => {
                     // Handshaking failed
-                    self.message = Some("Could not connect to the server!".into());
                     ctx.server.take(); // Drop the server
-                    return Transition::None;
+                    return Transition::Push(Box::new(Popup::new(
+                        "Could not connect to the server!".into(),
+                    )));
                 }
                 ClientState::Handshaking => {
                     // Waiting for server response, do nothing
@@ -94,15 +98,16 @@ impl View for ServerConnectMenu {
             Some(button) => match button {
                 ServerConnectButtons::Connect => {
                     if ctx.server.is_some() {
-                        self.message = Some("Connecting... Wait...".into());
+                        // we are connecting...
                         return Transition::None;
                     }
 
-                    let server = Server::new(self.servername_field.text(), "Bulbulator".into());
+                    let server =
+                        Server::new(self.servername_field.text(), self.username_field.text());
                     match server {
                         Err(err) => {
-                            self.message =
-                                Some(format!("Could not connect to the server!: {}", err));
+                            let message = format!("Could not connect to the server: {}", err);
+                            return Transition::Push(Box::new(Popup::new(message)));
                         }
                         Ok(server) => {
                             ctx.server = Some(server);
@@ -117,14 +122,6 @@ impl View for ServerConnectMenu {
                 }
             },
             None => Transition::None,
-        }
-    }
-
-    fn on_resume(&mut self, _ctx: &mut AppContext, from_overlay: bool) {
-        // For overlays, we don't want the input to disappear
-        if !from_overlay {
-            self.message = None;
-            self.servername_field.reset();
         }
     }
 

@@ -1,5 +1,7 @@
+use futures::executor::block_on;
 use macroquad::miniquad::window::screen_size;
 use macroquad::prelude::*;
+use once_cell::sync::Lazy;
 
 pub const TEXT_SMALL: u16 = 16;
 pub const TEXT_MID: u16 = 20;
@@ -10,8 +12,13 @@ pub const CANONICAL_SCREEN_WIDTH: f32 = 1920. / GLOBAL_SCALING;
 pub const CANONICAL_SCREEN_HEIGHT: f32 = 1080. / GLOBAL_SCALING;
 pub const CANONICAL_SCREEN_MID_X: f32 = CANONICAL_SCREEN_WIDTH / 2.;
 pub const CANONICAL_SCREEN_MID_Y: f32 = CANONICAL_SCREEN_HEIGHT / 2.;
+pub const BACKGROUND_COLOR: Color = Color::from_rgba(34, 61, 92, 255);
+pub const TEXT_COLOR: Color = Color::from_rgba(224, 224, 224, 255);
 
 const BACKSPACE_DELAY_SECONDS: f32 = 0.1;
+
+static MAIN_FONT: Lazy<Font> =
+    Lazy::new(|| block_on(load_ttf_font("assets/arcade_riders.ttf")).unwrap());
 
 fn get_ui_scaling_factor() -> f32 {
     calc_transform(CANONICAL_SCREEN_WIDTH, CANONICAL_SCREEN_HEIGHT).0
@@ -19,6 +26,14 @@ fn get_ui_scaling_factor() -> f32 {
 
 fn get_ui_transform() -> (f32, f32, f32) {
     calc_transform(CANONICAL_SCREEN_WIDTH, CANONICAL_SCREEN_HEIGHT)
+}
+
+fn default_text_params() -> TextParams<'static> {
+    TextParams {
+        font: Some(&MAIN_FONT),
+        color: TEXT_COLOR,
+        ..Default::default()
+    }
 }
 
 fn scale_dims(x: f32, y: f32, w: f32, h: f32) -> (f32, f32, f32, f32) {
@@ -75,6 +90,22 @@ impl Layout {
     }
 }
 
+pub fn draw_texture_centered(texture: &Texture2D, x: f32, y: f32, scale: f32) {
+    let w = texture.width() * scale;
+    let h = texture.height() * scale;
+    let (x, y, w, h) = scale_dims(x - w / 2., y - h / 2., w, h);
+    draw_texture_ex(
+        texture,
+        x,
+        y,
+        WHITE,
+        DrawTextureParams {
+            dest_size: Some(Vec2::new(w, h)), // width, height in pixels
+            ..Default::default()
+        },
+    );
+}
+
 /// When drawing text, defines what the y position refers to
 #[derive(Clone)]
 pub(crate) enum TextVerticalPositioning {
@@ -123,9 +154,10 @@ impl Text {
     pub fn new_simple(font_size: u16, font_scale: f32) -> Self {
         Text {
             params: TextParams {
+                font: Some(&MAIN_FONT),
                 font_size,
                 font_scale,
-                ..Default::default()
+                ..default_text_params()
             },
             ..Default::default()
         }
@@ -135,8 +167,9 @@ impl Text {
     pub fn new_scaled(font_size: u16) -> Self {
         Text {
             params: TextParams {
+                font: Some(&MAIN_FONT),
                 font_size,
-                ..Default::default()
+                ..default_text_params()
             },
             ..Default::default()
         }
@@ -146,9 +179,10 @@ impl Text {
     pub fn new_title() -> Self {
         Text {
             params: TextParams {
+                font: Some(&MAIN_FONT),
                 font_size: TEXT_HUGE,
                 color: GRAY,
-                ..Default::default()
+                ..default_text_params()
             },
             ..Default::default()
         }
@@ -209,7 +243,7 @@ impl Text {
 impl Default for Text {
     fn default() -> Self {
         Text {
-            params: Default::default(),
+            params: default_text_params(),
             vertical_positioning: TextVerticalPositioning::CenterExact,
             horizontal_positioning: TextHorizontalPositioning::Center,
         }
@@ -321,7 +355,7 @@ impl Default for Button {
     fn default() -> Self {
         let params = TextParams {
             font_size: TEXT_LARGE,
-            ..Default::default()
+            ..default_text_params()
         };
 
         Button::new(Field::default(), Some(params))
@@ -353,9 +387,14 @@ impl TextField {
         }
     }
 
+    pub fn new_simple(max_len: u32) -> Self {
+        TextField::new(Field::default(), default_text_params(), max_len)
+    }
+
     pub fn draw(&mut self, x: f32, y: f32, w: f32, h: f32) {
         self.field.draw(x, y, w, h);
-        self.text.draw(&self.text_string, x, y + h / 2.);
+        let left_pad = 0.05 * w;
+        self.text.draw(&self.text_string, x + left_pad, y + h / 2.);
     }
 
     pub fn draw_centered(&mut self, x: f32, y: f32, w: f32, h: f32) {

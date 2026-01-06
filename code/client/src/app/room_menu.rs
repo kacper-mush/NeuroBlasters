@@ -1,7 +1,8 @@
+use crate::app::room_creation::RoomCreation;
 use crate::app::room_lobby::RoomLobby;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Field, Layout, TEXT_LARGE, Text, TextField};
+use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, Text, TextField};
 use common::protocol::{ClientMessage, GameCode};
 use macroquad::prelude::*;
 
@@ -22,7 +23,7 @@ impl RoomMenu {
     pub fn new() -> Self {
         RoomMenu {
             button_pressed: None,
-            room_code_field: TextField::new(Field::default(), TextParams::default(), 10),
+            room_code_field: TextField::new_simple(10),
             message: None,
         }
     }
@@ -111,14 +112,7 @@ impl View for RoomMenu {
 
         match self.button_pressed {
             Some(button) => match button {
-                RoomMenuButtons::Create => {
-                    let res = server.send_client_message(ClientMessage::CreateGame);
-                    if res.is_err() {
-                        // This is more of a "could not send the request", but this is simplified for now
-                        self.message = Some("Could not create the room!".into());
-                    }
-                    Transition::None
-                }
+                RoomMenuButtons::Create => Transition::Push(Box::new(RoomCreation::new())),
                 RoomMenuButtons::Join => {
                     let res = server.send_client_message(ClientMessage::JoinGame {
                         game_code: GameCode(self.room_code_field.text()),
