@@ -1065,8 +1065,11 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "common",
+ "futures",
  "glam",
+ "image 0.25.9",
  "macroquad",
+ "once_cell",
  "rand 0.9.2",
  "renet",
  "renet_netcode",
@@ -1109,6 +1112,8 @@ dependencies = [
  "rand 0.9.2",
  "renet",
  "serde",
+ "strum 0.27.2",
+ "strum_macros 0.27.2",
  "thiserror 2.0.17",
 ]
 

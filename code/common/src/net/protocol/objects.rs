@@ -3,6 +3,7 @@ pub use renet::ClientId;
 use bincode::{Decode, Encode};
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
+use strum_macros::EnumIter;
 
 pub type PlayerId = u16;
 
@@ -65,11 +66,17 @@ pub struct MapDefinition {
     pub spawn_points: Vec<(Team, Vec2)>,
 }
 
+#[derive(EnumIter, Copy, Clone, Debug, PartialEq, Eq, Encode, Decode)]
+pub enum MapName {
+    Basic,
+    Loss,
+}
+
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct GameSnapshot {
     pub players: Vec<Player>,
     pub projectiles: Vec<Projectile>,
-    pub map_id: MapId,
+    pub map: MapName,
     pub state: GameState,
 }
 
@@ -85,5 +92,3 @@ pub struct KillEvent {
     pub killer_id: PlayerId,
     pub victim_id: PlayerId,
 }
-
-pub type MapId = u16;

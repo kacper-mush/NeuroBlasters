@@ -2,7 +2,7 @@ use crate::countdown::Countdown;
 use common::game::engine::GameEngine;
 use common::protocol::{
     ClientId, GameEvent, GameSnapshot, GameState as GameStateInfo, InputPayload, MapDefinition,
-    MapId, PlayerId,
+    MapName, PlayerId,
 };
 use std::collections::HashMap;
 
@@ -13,20 +13,20 @@ pub struct Game {
     engine: GameEngine,
     inputs: HashMap<PlayerId, InputPayload>,
     rounds_left: u8,
-    map_id: MapId,
+    map: MapName,
     pub outgoing_events: Vec<GameEvent>,
 }
 
 impl Game {
-    pub fn new(game_master: ClientId, map_id: MapId, rounds_left: u8) -> Self {
+    pub fn new(game_master: ClientId, map: MapName, rounds_left: u8) -> Self {
         Self {
             state: GameState::Waiting,
             players: HashMap::new(),
             game_master,
-            engine: GameEngine::new(MapDefinition::load(map_id)),
+            engine: GameEngine::new(MapDefinition::load_name(map)),
             inputs: HashMap::new(),
             rounds_left,
-            map_id,
+            map,
             outgoing_events: Vec::new(),
         }
     }
@@ -35,7 +35,7 @@ impl Game {
         GameSnapshot {
             players: self.engine.players.clone(),
             projectiles: self.engine.projectiles.clone(),
-            map_id: self.map_id,
+            map: self.map,
             state: self.game_state_info(),
         }
     }

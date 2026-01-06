@@ -1,9 +1,9 @@
 pub use renet::ClientId;
 
-use super::objects::{GameSnapshot, InputPayload, KillEvent, MapId, PlayerId, Team};
+use super::objects::{GameSnapshot, InputPayload, KillEvent, MapName, PlayerId, Team};
 use bincode::{Decode, Encode};
 
-pub const API_VERSION: ApiVersion = 3;
+pub const API_VERSION: ApiVersion = 4;
 
 /// Messages from Client -> Server
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
@@ -13,7 +13,7 @@ pub enum ClientMessage {
         nickname: String,
     },
     CreateGame {
-        map: MapId,
+        map: MapName,
         rounds: u8,
     },
     JoinGame {
