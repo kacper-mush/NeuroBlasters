@@ -3,6 +3,7 @@ mod countdown;
 mod game;
 mod game_manager;
 mod server;
+mod server_logic;
 
 use server::ServerApp;
 use tokio::time::{self, Duration, MissedTickBehavior};
