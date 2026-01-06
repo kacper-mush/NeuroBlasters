@@ -1,12 +1,7 @@
 use crate::protocol::{MapDefinition, RectWall, Team};
+pub use crate::protocol::MapName;
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
 
-#[derive(EnumIter, Copy, Clone, Debug, PartialEq, Eq)]
-pub enum MapName {
-    Basic,
-    Loss,
-}
 
 impl MapName {
     pub fn next(self) -> Self {
