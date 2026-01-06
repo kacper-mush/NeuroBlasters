@@ -2,7 +2,7 @@ pub use renet::ClientId;
 
 use crate::protocol::InitialGameInfo;
 
-use super::objects::{GameSnapshot, InputPayload, KillEvent, MapName, PlayerId, Team};
+use super::objects::{GameSnapshot, InputPayload, KillEvent, MapName, Team};
 use bincode::{Decode, Encode};
 
 pub const API_VERSION: ApiVersion = 4;

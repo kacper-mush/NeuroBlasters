@@ -1,11 +1,12 @@
 use crate::countdown::Countdown;
 use common::game::engine::GameEngine;
 use common::protocol::{
-    ClientId, GameEvent, GameSnapshot, GameState as GameStateInfo, InputPayload, MapDefinition,
-    MapName, PlayerId,
+    ClientId, GameCode, GameEvent, GameSnapshot, GameState as GameStateInfo, InitialGameInfo,
+    InputPayload, MapDefinition, MapName, PlayerId,
 };
 use std::collections::HashMap;
 use std::time::Duration;
+use tracing::warn;
 
 pub struct Game {
     state: GameState,
@@ -41,6 +42,15 @@ impl Game {
         }
     }
 
+    pub fn initial_game_info(&self, game_code: GameCode, player_id: PlayerId) -> InitialGameInfo {
+        InitialGameInfo {
+            game_code,
+            player_id,
+            num_rounds: self.rounds_left,
+            map_name: self.map,
+        }
+    }
+
     pub fn game_state_info(&self) -> GameStateInfo {
         match &self.state {
             GameState::Waiting => GameStateInfo::Waiting,
@@ -61,31 +71,34 @@ impl Game {
         &mut self,
         client_id: ClientId,
         nickname: String,
-    ) -> Result<PlayerId, String> {
-        let player_id = self.engine.add_player(nickname.clone())?;
+    ) -> Option<PlayerId> {
+        let player_id = self.engine.add_player(nickname.clone()).ok()?;
         self.players
             .insert(client_id, (player_id, nickname.clone()));
         self.outgoing_events.push(GameEvent::PlayerJoined(nickname));
-        Ok(player_id)
+        Some(player_id)
     }
 
-    pub fn remove_player(&mut self, client_id: ClientId) -> Result<(), String> {
+    pub fn remove_player(&mut self, client_id: ClientId) -> Option<PlayerId> {
         let (player_id, nickname) = self
             .players
-            .remove(&client_id)
-            .ok_or("Player not found".to_string())?;
+            .remove(&client_id)?;
         self.engine.remove_player(player_id);
         self.outgoing_events.push(GameEvent::PlayerLeft(nickname));
-        Ok(())
+        Some(player_id)
     }
 
-    pub fn start_countdown(&mut self, client_id: ClientId) -> Result<(), String> {
+    pub fn start_countdown(&mut self, client_id: ClientId) -> Result<(), StartCountdownError> {
         if self.players.len() < 2 {
-            return Err("At least 2 players needed to start the game".to_string());
+            return Err(StartCountdownError::NotEnoughPlayers);
+        }
+
+        if !matches!(self.state, GameState::Waiting) {
+            return Err(StartCountdownError::NotInWaitingState);
         }
 
         if client_id != self.game_master {
-            return Err("Only the game master can start the countdown".to_string());
+            return Err(StartCountdownError::NotTheGameMaster);
         }
 
         self.state = GameState::Countdown(Countdown::default());
@@ -94,6 +107,7 @@ impl Game {
 
     pub fn handle_player_input(&mut self, client_id: ClientId, input: InputPayload) {
         let Some((player_id, _)) = self.players.get(&client_id) else {
+            warn!(%client_id, "Player not found, ignoring input");
             return;
         };
         let input = if let GameState::Battle = self.state {
@@ -144,6 +158,14 @@ impl Game {
             GameState::Waiting => {}
         }
     }
+}
+
+#[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
+pub enum StartCountdownError {
+    NotEnoughPlayers,
+    NotTheGameMaster,
+    NotInWaitingState,
 }
 
 enum GameState {
@@ -319,8 +341,7 @@ mod tests {
         let mut g = Game::new(master, MapName::Basic, 3);
         g.add_player(master, "p1".to_string()).unwrap();
 
-        let err = g.remove_player(999).unwrap_err();
-        assert!(err.contains("Player not found"));
+        assert!(g.remove_player(999).is_none());
     }
 
     #[test]

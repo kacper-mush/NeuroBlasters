@@ -99,6 +99,6 @@ pub struct KillEvent {
 pub struct InitialGameInfo {
     pub game_code: GameCode,
     pub player_id: PlayerId,
-    pub num_rounds: u32,
+    pub num_rounds: u8,
     pub map_name: MapName,
 }
