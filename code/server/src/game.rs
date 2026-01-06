@@ -17,23 +17,6 @@ pub struct Game {
     pub outgoing_events: Vec<GameEvent>,
 }
 
-pub enum GameCommand {
-    Join {
-        client_id: ClientId,
-        nickname: String,
-    },
-    Leave {
-        client_id: ClientId,
-    },
-    StartCountdown {
-        client_id: ClientId,
-    },
-    Input {
-        client_id: ClientId,
-        input: InputPayload,
-    },
-}
-
 impl Game {
     pub fn new(game_master: ClientId, map_id: MapId, rounds_left: u8) -> Self {
         Self {
@@ -71,6 +54,7 @@ impl Game {
 
     pub fn add_player(&mut self, client_id: ClientId, nickname: String) -> Result<(), String> {
         self.engine.add_player(client_id, nickname.clone())?;
+        self.players.insert(client_id, nickname.clone());
         self.outgoing_events.push(GameEvent::PlayerJoined(nickname));
         Ok(())
     }

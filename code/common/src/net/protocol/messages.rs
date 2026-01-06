@@ -20,7 +20,7 @@ pub enum ClientMessage {
         game_code: GameCode,
     },
     LeaveGame,
-    StartGame,
+    StartCountdown,
     /// Player input for the current game tick
     GameInput(InputPayload),
 }
@@ -89,4 +89,4 @@ pub enum StartCountdownResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct GameCode(pub String);
 
-type ApiVersion = u16;
+pub type ApiVersion = u16;

@@ -3,8 +3,11 @@ use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use tracing::info;
 
-use crate::game::{Game, GameCommand};
-use common::protocol::{ClientId, GameCode, GameUpdate, GameState, MapId};
+use crate::game::Game;
+use common::protocol::{
+    ClientId, CrateGameReponse, GameCode, GameUpdate, GameState, InputPayload, JoinGameResponse,
+    LeaveGameResponse, MapId, StartCountdownResponse,
+};
 
 pub struct GameManager {
     pub games: HashMap<GameCode, Game>,
@@ -39,36 +42,93 @@ impl GameManager {
         updates
     }
 
-    pub fn create_game(&mut self, game_master: ClientId, map_id: MapId, rounds: u8) -> GameCode {
-        let code = self.generate_code();
-        self.games.insert(code.clone(), Game::new(game_master, map_id, rounds));
-        info!("Game created: {:?}", code);  
-        code
-    }
-
-    pub fn handle_game_command(
+    pub fn create_game(
         &mut self,
-        game_code: &GameCode,
-        command: GameCommand,
-    ) -> Result<(), String> {
-        let game = self.games.get_mut(game_code).ok_or("Game does not exist")?;
+        game_master: ClientId,
+        nickname: String,
+        map_id: MapId,
+        rounds: u8,
+    ) -> CrateGameReponse {
+        let game_code = self.generate_code();
 
-        match (command, game.game_state_info()) {
-            (GameCommand::Input { client_id, input }, _) => {
-                game.handle_player_input(client_id, input);
-            }
-            (GameCommand::Leave { client_id }, _) => {
-                game.remove_player(client_id)?;
-            }
-            (GameCommand::Join { client_id, nickname }, GameState::Waiting) => {
-                game.add_player(client_id, nickname)?;
-            }
-            (GameCommand::StartCountdown { client_id }, GameState::Waiting) => {
-                game.start_countdown(client_id)?;
-            }
-            _ => return Err("Invalid command in current state".to_string()),
+        let mut game = Game::new(game_master, map_id, rounds);
+
+        if let Err(e) = game.add_player(game_master, nickname) {
+            return CrateGameReponse::Error(e);
         }
 
+        self.games.insert(game_code.clone(), game);
+        info!("Game created: {:?}", game_code);  
+
+        CrateGameReponse::Ok { game_code }
+    }
+
+    pub fn join_game(
+        &mut self,
+        game_code: &GameCode,
+        client_id: ClientId,
+        nickname: String,
+    ) -> JoinGameResponse {
+        let Some(game) = self.games.get_mut(game_code) else {
+            return JoinGameResponse::Error("Game does not exist".to_string());
+        };
+
+        if game.game_state_info() != GameState::Waiting {
+            return JoinGameResponse::Error("Game is not in lobby state".to_string());
+        }
+
+        match game.add_player(client_id, nickname) {
+            Ok(()) => JoinGameResponse::Ok,
+            Err(e) => JoinGameResponse::Error(e),
+        }
+    }
+
+    pub fn leave_game(&mut self, game_code: &GameCode, client_id: ClientId) -> LeaveGameResponse {
+        let Some(game) = self.games.get_mut(game_code) else {
+            return LeaveGameResponse::Error("Game does not exist".to_string());
+        };
+
+        // TODO: Remove game if no players left
+        match game.remove_player(client_id) {
+            Ok(()) => LeaveGameResponse::Ok,
+            Err(e) => LeaveGameResponse::Error(e),
+        }
+    }
+
+    pub fn start_countdown(
+        &mut self,
+        game_code: &GameCode,
+        client_id: ClientId,
+    ) -> StartCountdownResponse {
+        let Some(game) = self.games.get_mut(game_code) else {
+            return StartCountdownResponse::Error("Game does not exist".to_string());
+        };
+
+        if game.game_state_info() != GameState::Waiting {
+            return StartCountdownResponse::Error("Game is not in lobby state".to_string());
+        }
+
+        match game.start_countdown(client_id) {
+            Ok(()) => StartCountdownResponse::Ok,
+            Err(e) => StartCountdownResponse::Error(e),
+        }
+    }
+
+    pub fn submit_input(
+        &mut self,
+        game_code: &GameCode,
+        client_id: ClientId,
+        input: InputPayload,
+    ) -> Result<(), String> {
+        let game = self.games.get_mut(game_code).ok_or("Game does not exist")?;
+        game.handle_player_input(client_id, input);
+        Ok(())
+    }
+
+    pub fn remove_player(&mut self, game_code: &GameCode, client_id: ClientId) -> Result<(), String> {
+        let game = self.games.get_mut(game_code).ok_or("Game does not exist")?;
+        game.remove_player(client_id)?;
+        // TODO: Remove game if no players left
         Ok(())
     }
 
