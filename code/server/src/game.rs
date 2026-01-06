@@ -272,7 +272,7 @@ mod tests {
         g.handle_player_input(master, input_shooting_towards(my_pos + Vec2::X * 10.0));
         g.tick(0.0);
 
-        assert!(g.snapshot().projectiles.len() >= 1);
+        assert!(!g.snapshot().projectiles.is_empty());
     }
 
     #[test]
