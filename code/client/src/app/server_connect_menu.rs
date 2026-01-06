@@ -2,7 +2,9 @@ use crate::app::popup::Popup;
 use crate::app::room_menu::RoomMenu;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::{ClientState, Server};
-use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_MID, Text, TextField};
+use crate::ui::{
+    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_MID, Text, TextField,
+};
 
 #[derive(Copy, Clone)]
 enum ServerConnectButtons {
@@ -29,19 +31,19 @@ impl ServerConnectMenu {
 impl View for ServerConnectMenu {
     fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = CANONICAL_SCREEN_MID_X;
-        let el_w = 300.;
-        let el_h = 50.;
-        let mut layout = Layout::new(200., 30.);
+        let el_w = BUTTON_W;
+        let el_h = BUTTON_H;
+        let mut layout = Layout::new(100., 30.);
 
-        Text::new_scaled(TEXT_LARGE).draw("Connect to server", x_mid, layout.next());
-        layout.add(40.);
+        Text::new_title().draw("Connect to server", x_mid, layout.next());
+        layout.add(70.);
 
         Text::new_scaled(TEXT_MID).draw("Enter server name:", x_mid, layout.next());
         layout.add(20.);
 
         self.servername_field
             .draw_centered(x_mid, layout.next(), el_w, el_h);
-        layout.add(el_h);
+        layout.add(el_h - 10.);
 
         Text::new_scaled(TEXT_MID).draw("Enter username:", x_mid, layout.next());
         layout.add(20.);

@@ -3,22 +3,34 @@ use macroquad::miniquad::window::screen_size;
 use macroquad::prelude::*;
 use once_cell::sync::Lazy;
 
-pub const TEXT_SMALL: u16 = 16;
-pub const TEXT_MID: u16 = 20;
-pub const TEXT_LARGE: u16 = 30;
-pub const TEXT_HUGE: u16 = 40;
+pub const TEXT_SMALL: u16 = 20;
+pub const TEXT_MID: u16 = 25;
+pub const TEXT_LARGE: u16 = 35;
+pub const TEXT_HUGE: u16 = 50;
+
 const GLOBAL_SCALING: f32 = 1.5;
 pub const CANONICAL_SCREEN_WIDTH: f32 = 1920. / GLOBAL_SCALING;
 pub const CANONICAL_SCREEN_HEIGHT: f32 = 1080. / GLOBAL_SCALING;
 pub const CANONICAL_SCREEN_MID_X: f32 = CANONICAL_SCREEN_WIDTH / 2.;
 pub const CANONICAL_SCREEN_MID_Y: f32 = CANONICAL_SCREEN_HEIGHT / 2.;
-pub const BACKGROUND_COLOR: Color = Color::from_rgba(34, 61, 92, 255);
+
+pub const FIELD_COLOR: Color = Color::from_rgba(0, 119, 206, 255);
+pub const FIELD_HOVER_COLOR: Color = Color::from_rgba(0, 72, 125, 255);
+pub const BACKGROUND_COLOR: Color = Color::from_rgba(2, 25, 89, 255);
 pub const TEXT_COLOR: Color = Color::from_rgba(224, 224, 224, 255);
+
+/// Typical button width
+pub const BUTTON_W: f32 = 300.;
+/// Typical button height
+pub const BUTTON_H: f32 = 55.;
 
 const BACKSPACE_DELAY_SECONDS: f32 = 0.1;
 
-static MAIN_FONT: Lazy<Font> =
-    Lazy::new(|| block_on(load_ttf_font("assets/arcade_riders.ttf")).unwrap());
+pub static MAIN_FONT: Lazy<Font> = Lazy::new(|| {
+    let mut font = block_on(load_ttf_font("assets/arcade_riders.ttf")).unwrap();
+    font.set_filter(FilterMode::Nearest); // Better results for a pixelated font
+    font
+});
 
 fn get_ui_scaling_factor() -> f32 {
     calc_transform(CANONICAL_SCREEN_WIDTH, CANONICAL_SCREEN_HEIGHT).0
@@ -28,9 +40,10 @@ fn get_ui_transform() -> (f32, f32, f32) {
     calc_transform(CANONICAL_SCREEN_WIDTH, CANONICAL_SCREEN_HEIGHT)
 }
 
-fn default_text_params() -> TextParams<'static> {
+pub fn default_text_params() -> TextParams<'static> {
     TextParams {
         font: Some(&MAIN_FONT),
+        font_scale: 1.,
         color: TEXT_COLOR,
         ..Default::default()
     }
@@ -152,11 +165,11 @@ impl Text {
 
     /// Create default text with given font size and custom scaling
     pub fn new_simple(font_size: u16, font_scale: f32) -> Self {
+        // We don't scale using the bult-in scaling. We use font sizes to get nicer
+        // results.
         Text {
             params: TextParams {
-                font: Some(&MAIN_FONT),
-                font_size,
-                font_scale,
+                font_size: (font_size as f32 * font_scale).round() as u16,
                 ..default_text_params()
             },
             ..Default::default()
@@ -167,7 +180,6 @@ impl Text {
     pub fn new_scaled(font_size: u16) -> Self {
         Text {
             params: TextParams {
-                font: Some(&MAIN_FONT),
                 font_size,
                 ..default_text_params()
             },
@@ -179,9 +191,7 @@ impl Text {
     pub fn new_title() -> Self {
         Text {
             params: TextParams {
-                font: Some(&MAIN_FONT),
                 font_size: TEXT_HUGE,
-                color: GRAY,
                 ..default_text_params()
             },
             ..Default::default()
@@ -201,7 +211,7 @@ impl Text {
 
         // Scale font
         let params = TextParams {
-            font_scale: scale,
+            font_size: (self.params.font_size as f32 * scale).round() as u16,
             ..self.params
         };
 
@@ -297,10 +307,10 @@ impl Field {
 impl Default for Field {
     fn default() -> Self {
         Self {
-            color: GRAY,
-            hover_color: DARKGRAY,
+            color: FIELD_COLOR,
+            hover_color: FIELD_HOVER_COLOR,
             outline_color: BLACK,
-            outline_thickness: 2.,
+            outline_thickness: 4.,
             draw_cache: None,
         }
     }

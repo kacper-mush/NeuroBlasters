@@ -1,5 +1,8 @@
 use crate::app::{AppContext, Transition, View, ViewId};
-use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, Text};
+use crate::ui::{
+    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, CANONICAL_SCREEN_MID_Y, Layout, TEXT_LARGE,
+    Text,
+};
 use macroquad::prelude::*;
 
 pub(crate) struct TrainingMenu {
@@ -17,13 +20,14 @@ impl TrainingMenu {
 impl View for TrainingMenu {
     fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = CANONICAL_SCREEN_MID_X;
-        let mut layout = Layout::new(200., 30.);
+        let y_mid = CANONICAL_SCREEN_MID_Y;
+        let mut layout = Layout::new(y_mid - 50., 30.);
 
         Text::new_scaled(TEXT_LARGE).draw("Training coming soon!", x_mid, layout.next());
         layout.add(30.);
 
         self.back_clicked = Button::default()
-            .draw_centered(x_mid, layout.next(), 250., 50., Some("Back"))
+            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Back"))
             .poll();
     }
 

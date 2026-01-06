@@ -72,9 +72,8 @@ const API_VERSION: ApiVersion = ApiVersion(2);
 
 impl Server {
     pub fn new(mut servername: String, username: String) -> Result<Self, String> {
-        if !is_valid_username(&username) {
-            return Err("Username invalid! Only alphanumerics and underscores allowed.".into());
-        }
+        is_valid_username(&username)?;
+
         // If no port suffix present, append the 8080 port which is the default for our server
         if !servername.contains(':') {
             servername.push_str(":8080");
@@ -84,7 +83,7 @@ impl Server {
             .to_socket_addrs()
             .ok()
             .and_then(|mut iter| iter.next())
-            .ok_or("Server not found".to_string())?;
+            .ok_or("Server not found.".to_string())?;
 
         let connection_config = ConnectionConfig::default();
 
@@ -96,7 +95,7 @@ impl Server {
         } else {
             UdpSocket::bind("[::]:0")
         }
-        .or(Err("Could not establish a connection".to_string()))?;
+        .or(Err("Could not establish a connection.".to_string()))?;
 
         let current_time = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -112,7 +111,7 @@ impl Server {
         };
 
         let transport = NetcodeClientTransport::new(current_time, authentication, socket)
-            .or(Err("Could not establish a connection"))?;
+            .or(Err("Could not establish a connection."))?;
 
         let mut server = Self {
             client,
@@ -123,13 +122,12 @@ impl Server {
             client_state: ClientState::Disconnected,
         };
 
-        // TODO: Actual nickname adding
         server
             .send_client_message(ClientMessage::Handshake {
                 api_version: API_VERSION,
                 nickname: username,
             })
-            .or(Err("Could not send handshake message"))?;
+            .or(Err("Handshake attempt failed."))?;
 
         Ok(server)
     }

@@ -1,7 +1,10 @@
 use crate::app::game::Game;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_HUGE, TEXT_LARGE, TEXT_MID, Text};
+use crate::ui::{
+    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_HUGE, TEXT_LARGE, TEXT_MID,
+    Text,
+};
 use common::protocol::{ClientMessage, GameCode};
 
 // This file will be deleted in the future
@@ -31,8 +34,6 @@ impl RoomLobby {
 impl View for RoomLobby {
     fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = CANONICAL_SCREEN_MID_X;
-        let button_w = 300.;
-        let button_h = 50.;
         let mut layout = Layout::new(100., 30.);
 
         let title = format!("Room code: {}", self.game_code.0);
@@ -50,15 +51,15 @@ impl View for RoomLobby {
         self.button_pressed = None;
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), button_w, button_h, Some("Start"))
+            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Start"))
             .poll()
         {
             self.button_pressed = Some(RoomLobbyButtons::Start);
         }
-        layout.add(button_h);
+        layout.add(BUTTON_H);
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), button_w, button_h, Some("Back"))
+            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Back"))
             .poll()
         {
             self.button_pressed = Some(RoomLobbyButtons::Leave);

@@ -2,7 +2,10 @@ use crate::app::popup::Popup;
 use crate::app::room_lobby::RoomLobby;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_MID, Text};
+use crate::ui::{
+    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_MID, Text,
+    TextVerticalPositioning, default_text_params,
+};
 use common::game::map::MapName;
 use common::protocol::ClientMessage;
 use macroquad::prelude::*;
@@ -37,20 +40,32 @@ impl RoomCreation {
 
 impl View for RoomCreation {
     fn draw(&mut self, _ctx: &AppContext) {
+        // For scrollers
+        let consitent_text = Text {
+            params: TextParams {
+                font_size: TEXT_MID,
+                ..default_text_params()
+            },
+            vertical_positioning: TextVerticalPositioning::CenterConsistent,
+            ..Default::default()
+        };
+
         let x_mid = CANONICAL_SCREEN_MID_X;
-        let el_w = 300.;
-        let el_h = 50.;
-        let mut layout = Layout::new(200., 30.);
+        let el_w = BUTTON_W;
+        let el_h = BUTTON_H;
+
+        let mut layout = Layout::new(100., 30.);
         self.button_pressed = None;
 
-        Text::new_scaled(TEXT_LARGE).draw("Create Room", x_mid, layout.next());
-        layout.add(40.);
+        Text::new_title().draw("Create Room", x_mid, layout.next());
+        layout.add(70.);
 
         Text::new_scaled(TEXT_MID).draw("Choose number of rounds:", x_mid, layout.next());
         layout.add(20.);
 
         let num_rounds = ROUND_NUMBER_CHOICES[self.round_index];
-        Text::new_scaled(TEXT_MID).draw(&num_rounds.to_string(), x_mid, layout.next());
+
+        consitent_text.draw(&num_rounds.to_string(), x_mid, layout.next());
         if Button::default()
             .draw_centered(x_mid - 100., layout.next(), 50., 50., Some("<"))
             .poll()
@@ -69,7 +84,7 @@ impl View for RoomCreation {
         layout.add(20.);
 
         let map_name = format!("{:?}", self.current_map);
-        Text::new_scaled(TEXT_MID).draw(&map_name, x_mid, layout.next());
+        consitent_text.draw(&map_name, x_mid, layout.next());
         if Button::default()
             .draw_centered(x_mid - 100., layout.next(), 50., 50., Some("<"))
             .poll()

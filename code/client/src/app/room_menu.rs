@@ -2,7 +2,10 @@ use crate::app::room_creation::RoomCreation;
 use crate::app::room_lobby::RoomLobby;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, Text, TextField};
+use crate::ui::{
+    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_MID, Text,
+    TextField,
+};
 use common::protocol::{ClientMessage, GameCode};
 use macroquad::prelude::*;
 
@@ -32,32 +35,34 @@ impl RoomMenu {
 impl View for RoomMenu {
     fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = CANONICAL_SCREEN_MID_X;
-        let el_w = 300.;
-        let el_h = 50.;
-        let mut layout = Layout::new(200., 30.);
+        let el_w = BUTTON_W;
+        let el_h = BUTTON_H;
+        let mut layout = Layout::new(100., 30.);
 
         self.button_pressed = None;
 
-        Text::new_scaled(TEXT_LARGE).draw("Rooms", x_mid, layout.next());
-        layout.add(30.);
+        Text::new_title().draw("Rooms", x_mid, layout.next());
+        layout.add(70.);
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Create"))
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Create new"))
             .poll()
         {
             self.button_pressed = Some(RoomMenuButtons::Create);
         }
         layout.add(el_h);
 
-        Text::new_scaled(TEXT_LARGE).draw("Room code:", x_mid, layout.next());
+        Text::new_scaled(TEXT_MID).draw("Room code:", x_mid, layout.next());
         layout.add(20.);
 
+        let left_x = x_mid - el_w / 4.;
+        let right_x = x_mid + el_w / 4.;
+
         self.room_code_field
-            .draw_centered(x_mid, layout.next(), el_w, el_h);
-        layout.add(el_h);
+            .draw_centered(left_x, layout.next(), el_w / 2., el_h);
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Join"))
+            .draw_centered(right_x, layout.next(), el_w / 2., el_h, Some("Join"))
             .poll()
         {
             self.button_pressed = Some(RoomMenuButtons::Join);
