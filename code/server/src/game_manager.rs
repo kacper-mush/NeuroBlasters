@@ -5,7 +5,7 @@ use tracing::info;
 
 use crate::game::Game;
 use common::protocol::{
-    ClientId, CrateGameReponse, GameCode, GameState, GameUpdate, InputPayload, JoinGameResponse,
+    ClientId, CreateGameResponse, GameCode, GameState, GameUpdate, InputPayload, JoinGameResponse,
     LeaveGameResponse, MapName, StartCountdownResponse,
 };
 
@@ -68,20 +68,20 @@ impl GameManager {
         nickname: String,
         map: MapName,
         rounds: u8,
-    ) -> CrateGameReponse {
+    ) -> CreateGameResponse {
         let game_code = self.generate_code();
 
         let mut game = Game::new(game_master, map, rounds);
 
         let player_id = match game.add_player(game_master, nickname) {
             Ok(id) => id,
-            Err(e) => return CrateGameReponse::Error(e),
+            Err(e) => return CreateGameResponse::Error(e),
         };
 
         self.games.insert(game_code.clone(), game);
         info!("Game created: {:?}", game_code);
 
-        CrateGameReponse::Ok {
+        CreateGameResponse::Ok {
             game_code,
             player_id,
         }

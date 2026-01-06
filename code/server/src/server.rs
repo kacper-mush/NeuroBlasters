@@ -1,7 +1,10 @@
 use std::{net::SocketAddr, net::UdpSocket, time::Duration, time::Instant};
 
 use common::codec::{decode_client_message, encode_server_message};
-use common::protocol::ServerMessage;
+use common::protocol::{
+    API_VERSION, ApiVersion, ClientMessage, CreateGameResponse, HandshakeResponse,
+    JoinGameResponse, LeaveGameResponse, ServerMessage,
+};
 
 use crate::server_logic::ServerLogic;
 
@@ -122,6 +125,118 @@ impl ServerApp {
                 }
             }
         }
+    }
+
+    fn handle_message(
+        &mut self,
+        client_id: ClientId,
+        message: ClientMessage,
+    ) -> Result<Option<ServerMessage>, String> {
+        // Handle handshake
+        if let ClientMessage::Handshake {
+            api_version,
+            nickname,
+        } = message
+        {
+            return Ok(Some(ServerMessage::HandshakeResponse(
+                self.handle_handshake(client_id, api_version, nickname),
+            )));
+        }
+
+        // Handle other messages
+        let client = self.clients.get_mut(&client_id).ok_or("Unknown sender")?;
+
+        let (response, new_state) = match (&client.state, message) {
+            (ClientState::Lobby, ClientMessage::CreateGame { map, rounds }) => {
+                let response =
+                    self.game_manager
+                        .create_game(client_id, client.nickname.clone(), map, rounds);
+
+                let new_state = match &response {
+                    CreateGameResponse::Ok {
+                        game_code,
+                        player_id,
+                    } => Some(ClientState::InGame {
+                        game_code: game_code.clone(),
+                        player_id: *player_id,
+                    }),
+                    CreateGameResponse::Error(_) => None,
+                };
+
+                (Some(ServerMessage::CreateGameReponse(response)), new_state)
+            }
+
+            (ClientState::Lobby, ClientMessage::JoinGame { game_code }) => {
+                let response =
+                    self.game_manager
+                        .join_game(&game_code, client_id, client.nickname.clone());
+
+                let new_state = match response {
+                    JoinGameResponse::Ok { player_id } => Some(ClientState::InGame {
+                        game_code,
+                        player_id,
+                    }),
+                    JoinGameResponse::Error(_) => None,
+                };
+
+                (Some(ServerMessage::JoinGameResponse(response)), new_state)
+            }
+
+            (ClientState::InGame { game_code, .. }, msg) => match msg {
+                ClientMessage::LeaveGame => {
+                    let response = self.game_manager.leave_game(game_code, client_id);
+                    let new_state = match response {
+                        LeaveGameResponse::Ok => Some(ClientState::Lobby),
+                        LeaveGameResponse::Error(_) => None,
+                    };
+
+                    (Some(ServerMessage::LeaveGameResponse(response)), new_state)
+                }
+                ClientMessage::StartCountdown => {
+                    let response = self.game_manager.start_countdown(game_code, client_id);
+
+                    (Some(ServerMessage::StartCountdownResponse(response)), None)
+                }
+                ClientMessage::GameInput(input) => {
+                    self.game_manager
+                        .submit_input(game_code, client_id, input)?;
+                    (None, None)
+                }
+                _ => return Err("Invalid message in current state".to_string()),
+            },
+            (_, _) => return Err("Invalid message in current state".to_string()),
+        };
+
+        if let Some(s) = new_state {
+            client.state = s;
+        }
+
+        Ok(response)
+    }
+
+    fn handle_handshake(
+        &mut self,
+        client_id: ClientId,
+        api_version: ApiVersion,
+        nickname: String,
+    ) -> HandshakeResponse {
+        if api_version != API_VERSION {
+            return HandshakeResponse::Error("Api version mismatch".to_string());
+        }
+
+        if self.clients.contains_key(&client_id) {
+            return HandshakeResponse::Error("Client already connected".to_string());
+        }
+
+        self.clients.insert(
+            client_id,
+            Client {
+                nickname,
+                state: ClientState::Lobby,
+            },
+        );
+
+        HandshakeResponse::Ok
     }
 
     fn send_message(&mut self, client_id: ClientId, message: ServerMessage) {

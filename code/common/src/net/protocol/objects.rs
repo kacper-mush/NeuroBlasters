@@ -5,6 +5,8 @@ use glam::Vec2;
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
+use crate::protocol::GameCode;
+
 pub type PlayerId = u16;
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
@@ -91,4 +93,12 @@ pub enum GameState {
 pub struct KillEvent {
     pub killer_id: PlayerId,
     pub victim_id: PlayerId,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct InitialGameInfo {
+    pub game_code: GameCode,
+    pub player_id: PlayerId,
+    pub num_rounds: u32,
+    pub map_name: MapName,
 }
