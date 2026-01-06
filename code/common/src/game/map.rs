@@ -1,7 +1,6 @@
-use crate::protocol::{MapDefinition, RectWall, Team};
 pub use crate::protocol::MapName;
+use crate::protocol::{MapDefinition, RectWall, Team};
 use strum::IntoEnumIterator;
-
 
 impl MapName {
     pub fn next(self) -> Self {

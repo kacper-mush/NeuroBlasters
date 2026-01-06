@@ -234,7 +234,10 @@ mod tests {
             resp,
             ServerMessage::HandshakeResponse(HandshakeResponse::Ok)
         ));
-        assert!(matches!(logic.client_state(client_id), Some(ClientState::Lobby)));
+        assert!(matches!(
+            logic.client_state(client_id),
+            Some(ClientState::Lobby)
+        ));
     }
 
     #[test]
@@ -418,7 +421,11 @@ mod tests {
 
         logic.on_disconnect(host_id);
         assert!(logic.client_state(host_id).is_none());
-        assert_eq!(logic.game_manager_mut().games.len(), 1, "game should remain with 1 player");
+        assert_eq!(
+            logic.game_manager_mut().games.len(),
+            1,
+            "game should remain with 1 player"
+        );
 
         logic.on_disconnect(joiner_id);
         assert!(logic.client_state(joiner_id).is_none());
@@ -429,5 +436,3 @@ mod tests {
         );
     }
 }
-
-

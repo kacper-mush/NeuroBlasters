@@ -151,3 +151,114 @@ enum GameState {
     Countdown(Countdown),
     Battle,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::protocol::GameEvent;
+    use glam::Vec2;
+
+    fn input_shooting_towards(to: Vec2) -> InputPayload {
+        InputPayload {
+            move_axis: Vec2::ZERO,
+            aim_pos: to,
+            shoot: true,
+        }
+    }
+
+    #[test]
+    fn add_and_remove_player_emits_events() {
+        let master: ClientId = 1;
+        let mut g = Game::new(master, MapName::Basic, 3);
+
+        let _p1 = g.add_player(master, "p1".to_string()).unwrap();
+        assert!(matches!(
+            g.outgoing_events.as_slice(),
+            [GameEvent::PlayerJoined(n)] if n == "p1"
+        ));
+
+        g.outgoing_events.clear();
+        g.remove_player(master).unwrap();
+        assert!(matches!(
+            g.outgoing_events.as_slice(),
+            [GameEvent::PlayerLeft(n)] if n == "p1"
+        ));
+    }
+
+    #[test]
+    fn start_countdown_requires_two_players_and_master() {
+        let master: ClientId = 1;
+        let other: ClientId = 2;
+        let mut g = Game::new(master, MapName::Basic, 3);
+
+        g.add_player(master, "p1".to_string()).unwrap();
+        assert!(g.start_countdown(master).is_err(), "needs 2 players");
+
+        g.add_player(other, "p2".to_string()).unwrap();
+        assert!(g.start_countdown(other).is_err(), "only master can start");
+
+        g.start_countdown(master).unwrap();
+        assert!(matches!(g.game_state_info(), GameStateInfo::Countdown(_)));
+    }
+
+    #[test]
+    fn countdown_transition_to_battle_after_enough_time() {
+        let master: ClientId = 1;
+        let other: ClientId = 2;
+        let mut g = Game::new(master, MapName::Basic, 3);
+
+        g.add_player(master, "p1".to_string()).unwrap();
+        g.add_player(other, "p2".to_string()).unwrap();
+        g.start_countdown(master).unwrap();
+
+        // Default countdown is 5s, so 6s should finish it in one tick.
+        g.tick(6.0);
+        assert!(matches!(g.game_state_info(), GameStateInfo::Battle));
+    }
+
+    #[test]
+    fn cannot_shoot_during_countdown_but_can_in_battle() {
+        let master: ClientId = 1;
+        let other: ClientId = 2;
+        let mut g = Game::new(master, MapName::Basic, 3);
+
+        g.add_player(master, "p1".to_string()).unwrap();
+        g.add_player(other, "p2".to_string()).unwrap();
+        g.start_countdown(master).unwrap();
+
+        // Aim at something different than our current position.
+        let my_pos = g
+            .snapshot()
+            .players
+            .iter()
+            .find(|p| p.nickname == "p1")
+            .unwrap()
+            .position;
+
+        g.handle_player_input(master, input_shooting_towards(my_pos + Vec2::X * 10.0));
+        g.tick(0.0);
+
+        // Countdown suppresses shooting.
+        assert_eq!(g.snapshot().projectiles.len(), 0);
+
+        // Transition to battle.
+        g.tick(6.0);
+        assert!(matches!(g.game_state_info(), GameStateInfo::Battle));
+
+        let my_pos = g
+            .snapshot()
+            .players
+            .iter()
+            .find(|p| p.nickname == "p1")
+            .unwrap()
+            .position;
+
+        g.handle_player_input(master, input_shooting_towards(my_pos + Vec2::X * 10.0));
+        g.tick(0.0);
+
+        assert!(
+            g.snapshot().projectiles.len() >= 1,
+            "battle should allow shooting (projectile should be created)"
+        );
+    }
+}
