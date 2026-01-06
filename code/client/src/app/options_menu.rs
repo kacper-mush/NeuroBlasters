@@ -1,5 +1,8 @@
 use crate::app::{AppContext, Transition, View, ViewId};
-use crate::ui::{Button, Field, Text};
+use crate::ui::{
+    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, CANONICAL_SCREEN_MID_Y, Layout, TEXT_LARGE,
+    Text,
+};
 use macroquad::prelude::*;
 
 pub(crate) struct OptionsMenu {
@@ -16,11 +19,15 @@ impl OptionsMenu {
 
 impl View for OptionsMenu {
     fn draw(&mut self, _ctx: &AppContext) {
-        let x_mid = screen_width() / 2.;
+        let x_mid = CANONICAL_SCREEN_MID_X;
+        let y_mid = CANONICAL_SCREEN_MID_Y;
+        let mut layout = Layout::new(y_mid - 50., 30.);
 
-        Text::new_simple(30).draw("Options here...", x_mid, 200.);
-        self.back_clicked = Button::new(Field::default(), Some(TextParams::default()))
-            .draw_centered(x_mid, 250., 250., 50., Some("Back"))
+        Text::new_scaled(TEXT_LARGE).draw("Options here...", x_mid, layout.next());
+        layout.add(30.);
+
+        self.back_clicked = Button::default()
+            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Back"))
             .poll();
     }
 

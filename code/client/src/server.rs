@@ -4,6 +4,7 @@ use std::{mem, net::ToSocketAddrs};
 use common::{
     codec::{decode_server_message, encode_client_message},
     game::engine::GameEngine,
+    game::player::is_valid_username,
     protocol::{
         ApiVersion, ClientMessage, GameCode, GameEvent, GameStateSnapshot, MapDefinition,
         ServerMessage, Team,
@@ -70,19 +71,31 @@ const RELIABLE_CHANNEL_ID: u8 = 0;
 const API_VERSION: ApiVersion = ApiVersion(2);
 
 impl Server {
-    pub fn new(servername: String, nickname: String) -> Result<Self, String> {
+    pub fn new(mut servername: String, username: String) -> Result<Self, String> {
+        is_valid_username(&username)?;
+
+        // If no port suffix present, append the 8080 port which is the default for our server
+        if !servername.contains(':') {
+            servername.push_str(":8080");
+        }
+
         let server_addr = servername
             .to_socket_addrs()
             .ok()
             .and_then(|mut iter| iter.next())
-            .ok_or("Server not found".to_string())?;
+            .ok_or("Server not found.".to_string())?;
 
         let connection_config = ConnectionConfig::default();
 
         let client = RenetClient::new(connection_config);
 
-        let socket = UdpSocket::bind("127.0.0.1:0")
-            .or(Err("Could not establish a connection".to_string()))?;
+        // Listen on all interfaces on any port, with the appropriate protocol
+        let socket = if server_addr.is_ipv4() {
+            UdpSocket::bind("0.0.0.0:0")
+        } else {
+            UdpSocket::bind("[::]:0")
+        }
+        .or(Err("Could not establish a connection.".to_string()))?;
 
         let current_time = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -98,7 +111,7 @@ impl Server {
         };
 
         let transport = NetcodeClientTransport::new(current_time, authentication, socket)
-            .or(Err("Could not establish a connection"))?;
+            .or(Err("Could not establish a connection."))?;
 
         let mut server = Self {
             client,
@@ -109,14 +122,12 @@ impl Server {
             client_state: ClientState::Disconnected,
         };
 
-        let r_num: u32 = rand::rng().random::<u32>() % 420;
-        // TODO: Actual nickname adding
         server
             .send_client_message(ClientMessage::Handshake {
                 api_version: API_VERSION,
-                nickname: format!("{}{}", nickname, r_num),
+                nickname: username,
             })
-            .or(Err("Could not send handshake message"))?;
+            .or(Err("Handshake attempt failed."))?;
 
         Ok(server)
     }
