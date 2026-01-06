@@ -256,9 +256,141 @@ mod tests {
         g.handle_player_input(master, input_shooting_towards(my_pos + Vec2::X * 10.0));
         g.tick(0.0);
 
-        assert!(
-            g.snapshot().projectiles.len() >= 1,
-            "battle should allow shooting (projectile should be created)"
+        assert!(g.snapshot().projectiles.len() >= 1);
+    }
+
+    #[test]
+    fn handle_player_input_ignores_unknown_client() {
+        let master: ClientId = 1;
+        let mut g = Game::new(master, MapName::Basic, 3);
+
+        // Unknown client should be ignored (no panic, no input recorded).
+        g.handle_player_input(
+            999,
+            InputPayload {
+                move_axis: Vec2::ZERO,
+                aim_pos: Vec2::ZERO,
+                shoot: true,
+            },
         );
+        assert!(g.inputs.is_empty());
+    }
+
+    fn make_player(
+        id: PlayerId,
+        nickname: &str,
+        team: common::protocol::Team,
+    ) -> common::protocol::Player {
+        common::protocol::Player {
+            id,
+            nickname: nickname.to_string(),
+            team,
+            position: Vec2::new(100.0, 100.0),
+            velocity: Vec2::ZERO,
+            rotation: 0.0,
+            radius: 10.0,
+            speed: 100.0,
+            health: 100.0,
+            weapon_cooldown: 0.0,
+        }
+    }
+
+    #[test]
+    fn client_ids_and_is_empty_reflect_players() {
+        let master: ClientId = 1;
+        let other: ClientId = 2;
+        let mut g = Game::new(master, MapName::Basic, 3);
+
+        assert!(g.is_empty());
+        assert!(g.client_ids().is_empty());
+
+        g.add_player(master, "p1".to_string()).unwrap();
+        g.add_player(other, "p2".to_string()).unwrap();
+
+        let mut ids = g.client_ids();
+        ids.sort();
+        assert_eq!(ids, vec![master, other]);
+        assert!(!g.is_empty());
+    }
+
+    #[test]
+    fn remove_player_unknown_client_is_error() {
+        let master: ClientId = 1;
+        let mut g = Game::new(master, MapName::Basic, 3);
+        g.add_player(master, "p1".to_string()).unwrap();
+
+        let err = g.remove_player(999).unwrap_err();
+        assert!(err.contains("Player not found"));
+    }
+
+    #[test]
+    fn battle_tick_emits_kill_events() {
+        use common::protocol::{KillEvent, Projectile, Team};
+
+        let master: ClientId = 1;
+        let mut g = Game::new(master, MapName::Basic, 3);
+
+        // Force battle state and inject players/projectile so resolve_combat produces a kill.
+        g.state = GameState::Battle;
+        g.engine.players = vec![make_player(0, "killer", Team::Blue), {
+            let mut p = make_player(1, "victim", Team::Red);
+            p.position = Vec2::new(200.0, 200.0);
+            p.health = 1.0;
+            p
+        }];
+        g.engine.projectiles = vec![Projectile {
+            id: 1,
+            owner_id: 0,
+            position: Vec2::new(200.0, 200.0), // hits victim immediately
+            velocity: Vec2::ZERO,
+            radius: 5.0,
+        }];
+
+        g.tick(0.0);
+
+        assert!(g.outgoing_events.iter().any(|e| matches!(
+            e,
+            GameEvent::Kill(KillEvent {
+                killer_id: 0,
+                victim_id: 1
+            })
+        )));
+    }
+
+    #[test]
+    fn battle_tick_emits_round_end_and_transitions_to_countdown_when_rounds_left_remain() {
+        let master: ClientId = 1;
+        let mut g = Game::new(master, MapName::Basic, 2);
+
+        // Force battle state and an immediate winner by having only one team alive.
+        g.state = GameState::Battle;
+        g.engine.players = vec![make_player(0, "p1", common::protocol::Team::Red)];
+
+        g.tick(0.0);
+
+        assert!(
+            g.outgoing_events
+                .iter()
+                .any(|e| matches!(e, GameEvent::RoundEnded(_)))
+        );
+        assert!(matches!(g.game_state_info(), GameStateInfo::Countdown(_)));
+    }
+
+    #[test]
+    fn battle_tick_emits_round_end_and_stays_in_battle_when_no_rounds_left() {
+        let master: ClientId = 1;
+        let mut g = Game::new(master, MapName::Basic, 1);
+
+        g.state = GameState::Battle;
+        g.engine.players = vec![make_player(0, "p1", common::protocol::Team::Red)];
+
+        g.tick(0.0);
+
+        assert!(
+            g.outgoing_events
+                .iter()
+                .any(|e| matches!(e, GameEvent::RoundEnded(_)))
+        );
+        assert!(matches!(g.game_state_info(), GameStateInfo::Battle));
     }
 }

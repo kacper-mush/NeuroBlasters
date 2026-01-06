@@ -90,7 +90,7 @@ impl ServerLogic {
                         game_code: game_code.clone(),
                         player_id: *player_id,
                     }),
-                    CrateGameReponse::Error(_) => None,
+                    _ => None,
                 };
 
                 (Some(ServerMessage::CrateGameReponse(response)), new_state)
@@ -208,7 +208,7 @@ mod tests {
                 game_code,
                 player_id,
             }) => (game_code, player_id),
-            other => panic!("unexpected create_game response: {other:?}"),
+            _ => unreachable!("CreateGame must return CrateGameReponse::Ok in this test setup"),
         }
     }
 
@@ -220,7 +220,7 @@ mod tests {
 
         match resp {
             ServerMessage::JoinGameResponse(JoinGameResponse::Ok { player_id }) => player_id,
-            other => panic!("unexpected join_game response: {other:?}"),
+            _ => unreachable!("JoinGame must return JoinGameResponse::Ok in this test setup"),
         }
     }
 
@@ -285,10 +285,9 @@ mod tests {
         let _ = handshake(&mut logic, client_id, "host");
         let (game_code, _player_id) = create_game(&mut logic, client_id);
 
-        match logic.client_state(client_id) {
-            Some(ClientState::InGame { game_code: gc, .. }) => assert_eq!(gc, game_code),
-            other => panic!("expected InGame state, got: {other:?}"),
-        }
+        assert!(
+            matches!(logic.client_state(client_id), Some(ClientState::InGame { game_code: gc, .. }) if gc == game_code)
+        );
     }
 
     #[test]
@@ -421,18 +420,129 @@ mod tests {
 
         logic.on_disconnect(host_id);
         assert!(logic.client_state(host_id).is_none());
-        assert_eq!(
-            logic.game_manager_mut().games.len(),
-            1,
-            "game should remain with 1 player"
-        );
+        assert_eq!(logic.game_manager_mut().games.len(), 1);
 
         logic.on_disconnect(joiner_id);
         assert!(logic.client_state(joiner_id).is_none());
+        assert_eq!(logic.game_manager_mut().games.len(), 0);
+    }
+
+    #[test]
+    fn accessors_return_internal_state() {
+        let mut logic = ServerLogic::new();
+        let _ = handshake(&mut logic, 1, "p1");
+
+        assert!(!logic.clients().is_empty());
+        // Just ensure it's callable and consistent.
         assert_eq!(
-            logic.game_manager_mut().games.len(),
-            0,
-            "game should be removed when empty"
+            logic.game_manager().games.len(),
+            logic.game_manager_mut().games.len()
         );
+    }
+
+    #[test]
+    fn non_handshake_from_unknown_sender_is_error() {
+        let mut logic = ServerLogic::new();
+        let err = logic
+            .handle_message(
+                123,
+                ClientMessage::CreateGame {
+                    map: MapName::Basic,
+                    rounds: 3,
+                },
+            )
+            .unwrap_err();
+        assert!(err.contains("Unknown sender"));
+    }
+
+    #[test]
+    fn disconnect_logs_when_remove_player_fails() {
+        let mut logic = ServerLogic::new();
+        let client_id: ClientId = 1;
+
+        let _ = handshake(&mut logic, client_id, "p1");
+
+        // Corrupt client state: says "InGame", but the referenced game doesn't exist.
+        logic.clients.get_mut(&client_id).unwrap().state = ClientState::InGame {
+            game_code: GameCode("0000".to_string()),
+            player_id: 0,
+        };
+
+        // Should hit the Err path in on_disconnect (and still remove the client).
+        logic.on_disconnect(client_id);
+        assert!(logic.client_state(client_id).is_none());
+    }
+
+    #[test]
+    fn leave_game_success_moves_client_back_to_lobby() {
+        let mut logic = ServerLogic::new();
+        let host_id: ClientId = 1;
+
+        let _ = handshake(&mut logic, host_id, "host");
+        let _ = create_game(&mut logic, host_id);
+
+        let resp = logic
+            .handle_message(host_id, ClientMessage::LeaveGame)
+            .unwrap()
+            .expect("LeaveGame returns a response");
+
+        assert!(matches!(
+            resp,
+            ServerMessage::LeaveGameResponse(LeaveGameResponse::Ok)
+        ));
+        assert!(matches!(
+            logic.client_state(host_id),
+            Some(ClientState::Lobby)
+        ));
+    }
+
+    #[test]
+    fn leave_game_error_does_not_change_state() {
+        let mut logic = ServerLogic::new();
+        let host_id: ClientId = 1;
+        let other_id: ClientId = 2;
+
+        let _ = handshake(&mut logic, host_id, "host");
+        let _ = handshake(&mut logic, other_id, "other");
+        let (game_code, _pid) = create_game(&mut logic, host_id);
+
+        // Corrupt other client into InGame without actually being in the game's player list.
+        logic.clients.get_mut(&other_id).unwrap().state = ClientState::InGame {
+            game_code,
+            player_id: 0,
+        };
+
+        let resp = logic
+            .handle_message(other_id, ClientMessage::LeaveGame)
+            .unwrap()
+            .expect("LeaveGame returns a response");
+
+        assert!(matches!(
+            resp,
+            ServerMessage::LeaveGameResponse(LeaveGameResponse::Error(_))
+        ));
+        assert!(matches!(
+            logic.client_state(other_id),
+            Some(ClientState::InGame { .. })
+        ));
+    }
+
+    #[test]
+    fn invalid_message_in_game_is_error() {
+        let mut logic = ServerLogic::new();
+        let host_id: ClientId = 1;
+
+        let _ = handshake(&mut logic, host_id, "host");
+        let (_game_code, _pid) = create_game(&mut logic, host_id);
+
+        let err = logic
+            .handle_message(
+                host_id,
+                ClientMessage::JoinGame {
+                    game_code: GameCode("1234".to_string()),
+                },
+            )
+            .unwrap_err();
+        assert!(err.contains("Invalid message"));
     }
 }
