@@ -1,5 +1,6 @@
 use super::{
-    apply_player_physics, check_round_winner, handle_shooting, resolve_combat, update_projectiles,
+    apply_player_physics, check_round_winner, handle_shooting, resolve_combat,
+    resolve_player_collisions, update_projectiles,
 };
 use crate::net::protocol::{
     ClientId, InputPayload, KillEvent, MapDefinition, Player, Projectile, Team,
@@ -55,6 +56,9 @@ impl GameEngine {
                 self.projectile_id_counter += 1;
             }
         }
+
+        // Resolves collisions between players (prevent overlapping)
+        resolve_player_collisions(&mut self.players);
 
         // Process Projectiles (Move & Collide with walls)
         update_projectiles(&mut self.projectiles, &self.map, dt);
