@@ -1,22 +1,24 @@
-use burn::module::Module;
+use burn::module::{Module, Param};
 use burn::nn::{Linear, LinearConfig, Relu};
-use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
+use burn::tensor::{Distribution, Tensor};
 
 #[derive(Module, Debug)]
 pub struct BotBrain<B: Backend> {
-    linear1: Linear<B>,
-    linear2: Linear<B>,
-    output: Linear<B>,
+    pub linear1: Linear<B>,
+    pub linear2: Linear<B>,
+    pub output: Linear<B>,
     activation: Relu,
 }
 
 impl<B: Backend> BotBrain<B> {
-    // We'll define specific input/output sizes
-    // Input: Features (Health, Enemy Dist, Walls, etc.)
-    // Output: (Up, Down, Left, Right, Shoot)
-    // TODO: maybe bigger input size (we can add teammates positions or sth)
     const INPUT_SIZE: usize = super::features::FEATURE_COUNT;
+
+    // [0] = Move Forward/Back
+    // [1] = Move Left/Right
+    // [2] = Aim Forward/Back (Vector Component)
+    // [3] = Aim Left/Right (Vector Component)
+    // [4] = Shoot
     const OUTPUT_SIZE: usize = 5;
 
     pub fn new(device: &B::Device) -> Self {
@@ -34,5 +36,42 @@ impl<B: Backend> BotBrain<B> {
         let x = self.linear2.forward(x);
         let x = self.activation.forward(x);
         self.output.forward(x)
+    }
+
+    pub fn mutate(&self, power: f32) -> Self {
+        let device = self.linear1.weight.device();
+
+        let mutate_param = |param: &Param<Tensor<B, 2>>| -> Param<Tensor<B, 2>> {
+            let noise = Tensor::random(param.shape(), Distribution::Normal(0.0, 1.0), &device)
+                .mul_scalar(power);
+            // FIX: Add .detach() here!
+            Param::from_tensor((param.val() + noise).detach())
+        };
+
+        let mutate_bias = |param: &Option<Param<Tensor<B, 1>>>| -> Option<Param<Tensor<B, 1>>> {
+            if let Some(b) = param {
+                let noise = Tensor::random(b.shape(), Distribution::Normal(0.0, 1.0), &device)
+                    .mul_scalar(power);
+                Some(Param::from_tensor((b.val() + noise).detach()))
+            } else {
+                None
+            }
+        };
+
+        Self {
+            linear1: Linear {
+                weight: mutate_param(&self.linear1.weight),
+                bias: mutate_bias(&self.linear1.bias),
+            },
+            linear2: Linear {
+                weight: mutate_param(&self.linear2.weight),
+                bias: mutate_bias(&self.linear2.bias),
+            },
+            output: Linear {
+                weight: mutate_param(&self.output.weight),
+                bias: mutate_bias(&self.output.bias),
+            },
+            activation: Relu::new(),
+        }
     }
 }
