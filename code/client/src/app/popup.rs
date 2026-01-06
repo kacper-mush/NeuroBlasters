@@ -5,29 +5,40 @@ use crate::ui::{
 };
 use macroquad::prelude::*;
 
-pub(crate) struct OptionsMenu {
+pub(crate) struct Popup {
+    text: String,
     back_clicked: bool,
 }
 
-impl OptionsMenu {
-    pub fn new() -> Self {
-        OptionsMenu {
+impl Popup {
+    pub fn new(text: String) -> Self {
+        Popup {
+            text,
             back_clicked: false,
         }
     }
 }
 
-impl View for OptionsMenu {
+impl View for Popup {
     fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = CANONICAL_SCREEN_MID_X;
         let y_mid = CANONICAL_SCREEN_MID_Y;
         let mut layout = Layout::new(y_mid - 50., 30.);
 
-        Text::new_scaled(TEXT_LARGE).draw("Options here...", x_mid, layout.next());
+        // overlay the previous view
+        draw_rectangle(
+            0.,
+            0.,
+            screen_width(),
+            screen_height(),
+            Color::new(0.0, 0.0, 0.0, 0.5),
+        );
+
+        Text::new_scaled(TEXT_LARGE).draw(&self.text, x_mid, layout.next());
         layout.add(30.);
 
         self.back_clicked = Button::default()
-            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Back"))
+            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Okay"))
             .poll();
     }
 
@@ -39,7 +50,11 @@ impl View for OptionsMenu {
         }
     }
 
+    fn is_overlay(&self) -> bool {
+        true
+    }
+
     fn get_id(&self) -> ViewId {
-        ViewId::OptionsMenu
+        ViewId::Popup
     }
 }

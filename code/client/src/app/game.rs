@@ -1,10 +1,12 @@
 use crate::app::winner_screen::WinnerScreen;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{self, Field};
+use crate::ui::{
+    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_SMALL, Text,
+    calc_transform,
+};
 use common::game::engine::GameEngine;
 use common::protocol::{ClientMessage, InputPayload, Team};
-use macroquad::miniquad::window::screen_size;
 use macroquad::prelude::*;
 
 pub(crate) struct Game {
@@ -15,37 +17,14 @@ impl Game {
     pub fn new(game_engine: GameEngine) -> Self {
         Self { game_engine }
     }
-
-    fn calc_transform(&mut self) -> (f32, f32, f32) {
-        let (map_w, map_h) = (self.game_engine.map.width, self.game_engine.map.height);
-        let (screen_w, screen_h) = screen_size();
-        let x_scaling = screen_w / map_w;
-        let y_scaling = screen_h / map_h;
-        let x_offset;
-        let y_offset;
-        let scaling;
-
-        // Choose scaling and offsets so that the map perfectly fits 1 dimension
-        // and is centered on the second dimension
-        if x_scaling < y_scaling {
-            scaling = x_scaling;
-            x_offset = 0.;
-            y_offset = f32::abs(screen_h - map_h * scaling) / 2.;
-        } else {
-            scaling = y_scaling;
-            x_offset = f32::abs(screen_w - map_w * scaling) / 2.;
-            y_offset = 0.;
-        }
-
-        (scaling, x_offset, y_offset)
-    }
 }
 
 impl View for Game {
     fn draw(&mut self, ctx: &AppContext) {
         clear_background(LIGHTGRAY);
 
-        let (scaling, x_offset, y_offset) = self.calc_transform();
+        let (scaling, x_offset, y_offset) =
+            calc_transform(self.game_engine.map.width, self.game_engine.map.height);
         let transform_x = |x: f32| x * scaling + x_offset;
         let transform_y = |y: f32| y * scaling + y_offset;
         let scale = |dim: f32| dim * scaling;
@@ -121,7 +100,7 @@ impl View for Game {
             );
 
             // Draw nick
-            ui::Text::new_simple(scale(16.) as u16).draw(
+            Text::new_simple(TEXT_SMALL, scaling).draw_no_scaling(
                 &player.nickname,
                 transform_x(player.position.x),
                 transform_y(player.position.y - player.radius - hb_h - 30.),
@@ -137,7 +116,7 @@ impl View for Game {
             )
         }
 
-        crate::ui::Text::new_simple(20).draw(&get_fps().to_string(), 10., 10.);
+        Text::new_scaled(TEXT_SMALL).draw(&get_fps().to_string(), 10., 10.);
     }
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {
@@ -170,7 +149,8 @@ impl View for Game {
             self.game_engine = engine;
         }
 
-        let (scaling, x_offset, y_offset) = self.calc_transform();
+        let (scaling, x_offset, y_offset) =
+            calc_transform(self.game_engine.map.width, self.game_engine.map.height);
         let inv_transform_x = |x: f32| (x - x_offset) / scaling;
         let inv_transform_y = |y: f32| (y - y_offset) / scaling;
 
@@ -250,11 +230,10 @@ impl InGameMenu {
 
 impl View for InGameMenu {
     fn draw(&mut self, _ctx: &AppContext) {
-        let x_mid = screen_width() / 2.;
-        let default_text_params = TextParams {
-            font_size: 30,
-            ..Default::default()
-        };
+        let x_mid = CANONICAL_SCREEN_MID_X;
+        let button_w = BUTTON_W;
+        let button_h = BUTTON_H;
+        let mut layout = Layout::new(150., 30.);
 
         // Menu grays the previous view
         draw_rectangle(
@@ -265,14 +244,22 @@ impl View for InGameMenu {
             Color::new(0.0, 0.0, 0.0, 0.5),
         );
 
-        ui::Text::new_simple(40).draw("PAUSED", x_mid, 150.);
+        Text::new_scaled(TEXT_LARGE).draw("PAUSED", x_mid, layout.next());
+        layout.add(50.);
 
-        self.resume_clicked = ui::Button::new(Field::default(), Some(default_text_params.clone()))
-            .draw_centered(x_mid, 250., 250., 50., Some("Resume"))
+        self.resume_clicked = Button::default()
+            .draw_centered(x_mid, layout.next(), button_w, button_h, Some("Resume"))
             .poll();
+        layout.add(button_h);
 
-        self.quit_clicked = ui::Button::new(Field::default(), Some(default_text_params.clone()))
-            .draw_centered(x_mid, 320., 250., 50., Some("Exit to Main Menu"))
+        self.quit_clicked = Button::default()
+            .draw_centered(
+                x_mid,
+                layout.next(),
+                button_w,
+                button_h,
+                Some("Exit to Main Menu"),
+            )
             .poll();
     }
 
@@ -284,11 +271,11 @@ impl View for InGameMenu {
 
         match &server.client_state {
             ClientState::AfterGame { winner } => {
-                // TODO: handle winner display
-                println!("Winner is: {:?}", winner);
+                let winner = *winner;
+                let _ = server.send_client_message(ClientMessage::LeaveGame);
                 return Transition::PopUntilAnd(
                     ViewId::RoomMenu,
-                    Box::new(WinnerScreen::new(*winner)),
+                    Box::new(WinnerScreen::new(winner)),
                 );
             }
             ClientState::Playing { game_engine: _ } => {
@@ -307,6 +294,7 @@ impl View for InGameMenu {
         }
 
         if self.quit_clicked {
+            let _ = server.send_client_message(ClientMessage::LeaveGame);
             return Transition::PopUntil(ViewId::RoomMenu);
         }
 

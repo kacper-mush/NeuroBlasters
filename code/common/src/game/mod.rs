@@ -247,6 +247,33 @@ pub fn resolve_combat(
     kills
 }
 
+/// Resolves collisions between players (prevent overlapping).
+pub fn resolve_player_collisions(players: &mut [Player]) {
+    // Iterating with split_at_mut allows us to get mutable references to two distinct elements.
+    for i in 0..players.len() {
+        let (left, right) = players.split_at_mut(i + 1);
+        let p1 = &mut left[i];
+
+        for p2 in right.iter_mut() {
+            let diff = p1.position - p2.position;
+            let dist_sq = diff.length_squared();
+            let min_dist = p1.radius + p2.radius;
+
+            // Check for overlap
+            if dist_sq < min_dist * min_dist && dist_sq > 0.0001 {
+                let dist = dist_sq.sqrt();
+                let overlap = min_dist - dist;
+                let normal = diff / dist; // Points from p2 to p1
+
+                // Push players apart equally (0.5 * overlap)
+                let correction = normal * (overlap * 0.5);
+                p1.position += correction;
+                p2.position -= correction;
+            }
+        }
+    }
+}
+
 /// Finds a spawn position using a hybrid Random + Grid Scan approach.
 pub fn find_spawn_position(
     map: &MapDefinition,

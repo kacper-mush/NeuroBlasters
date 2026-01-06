@@ -1,10 +1,13 @@
 use crate::app::main_menu::MainMenu;
 use crate::server::Server;
+use crate::ui::BACKGROUND_COLOR;
 use macroquad::prelude::*;
 
 mod game;
 mod main_menu;
 mod options_menu;
+mod popup;
+mod room_creation;
 mod room_lobby;
 mod room_menu;
 mod server_connect_menu;
@@ -27,6 +30,8 @@ pub(crate) enum ViewId {
     InGameMenu,
     OptionsMenu,
     WinnerScreen,
+    Popup,
+    RoomCreation,
 }
 
 pub(crate) enum Transition {
@@ -82,7 +87,7 @@ pub(crate) struct App {
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         App {
             stack: vec![Box::new(MainMenu::new())],
             context: AppContext { server: None },
@@ -109,7 +114,7 @@ impl App {
                 self.stack[i].shadow_update(&mut self.context);
             }
 
-            clear_background(DARKBLUE);
+            clear_background(BACKGROUND_COLOR);
 
             // Find the first state that is not letting states beneath it be drawn.
             // Start from the top of the stack

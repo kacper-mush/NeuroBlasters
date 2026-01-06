@@ -1,9 +1,13 @@
 use crate::app::game::Game;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{Button, Field, Text};
+use crate::ui::{
+    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_HUGE, TEXT_LARGE, TEXT_MID,
+    Text,
+};
 use common::protocol::{ClientMessage, GameCode};
-use macroquad::prelude::*;
+
+// This file will be deleted in the future
 
 #[derive(Clone, Copy)]
 enum RoomLobbyButtons {
@@ -29,35 +33,33 @@ impl RoomLobby {
 
 impl View for RoomLobby {
     fn draw(&mut self, _ctx: &AppContext) {
-        let x_mid = screen_width() / 2.;
-        let mut button = Button::new(Field::default(), Some(TextParams::default()));
-        let w = 300.;
-        let h = 50.;
-        let y_start = 200.;
-        let sep = 40.;
-        let mut offset = 0.;
+        let x_mid = CANONICAL_SCREEN_MID_X;
+        let mut layout = Layout::new(100., 30.);
 
         let title = format!("Room code: {}", self.game_code.0);
-        Text::new_simple(40).draw(&title, x_mid, y_start + offset);
-        offset += sep;
-        Text::new_simple(30).draw("Players:", x_mid, y_start + offset);
-        offset += sep;
+        Text::new_scaled(TEXT_HUGE).draw(&title, x_mid, layout.next());
+        layout.add(40.);
+
+        Text::new_scaled(TEXT_LARGE).draw("Players:", x_mid, layout.next());
+        layout.add(30.);
+
         for name in &self.player_names {
-            Text::new_simple(25).draw(name, x_mid, y_start + offset);
-            offset += sep;
+            Text::new_scaled(TEXT_MID).draw(name, x_mid, layout.next());
+            layout.add(30.);
         }
 
         self.button_pressed = None;
 
-        if button
-            .draw_centered(x_mid, y_start + offset, w, h, Some("Start"))
+        if Button::default()
+            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Start"))
             .poll()
         {
             self.button_pressed = Some(RoomLobbyButtons::Start);
         }
-        offset += 100.;
-        if button
-            .draw_centered(x_mid, y_start + offset, w, h, Some("Back"))
+        layout.add(BUTTON_H);
+
+        if Button::default()
+            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Back"))
             .poll()
         {
             self.button_pressed = Some(RoomLobbyButtons::Leave);
