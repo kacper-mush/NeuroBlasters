@@ -169,4 +169,265 @@ impl ServerLogic {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::protocol::{
+        ClientMessage, CrateGameReponse, GameCode, HandshakeResponse, JoinGameResponse, MapName,
+        PlayerId, ServerMessage, StartCountdownResponse,
+    };
+    use glam::Vec2;
+
+    fn handshake(logic: &mut ServerLogic, client_id: ClientId, nickname: &str) -> ServerMessage {
+        logic
+            .handle_message(
+                client_id,
+                ClientMessage::Handshake {
+                    api_version: API_VERSION,
+                    nickname: nickname.to_string(),
+                },
+            )
+            .unwrap()
+            .expect("handshake should always return a response")
+    }
+
+    fn create_game(logic: &mut ServerLogic, client_id: ClientId) -> (GameCode, PlayerId) {
+        let resp = logic
+            .handle_message(
+                client_id,
+                ClientMessage::CreateGame {
+                    map: MapName::Basic,
+                    rounds: 3,
+                },
+            )
+            .unwrap()
+            .expect("create_game should return a response");
+
+        match resp {
+            ServerMessage::CrateGameReponse(CrateGameReponse::Ok {
+                game_code,
+                player_id,
+            }) => (game_code, player_id),
+            other => panic!("unexpected create_game response: {other:?}"),
+        }
+    }
+
+    fn join_game(logic: &mut ServerLogic, client_id: ClientId, game_code: GameCode) -> PlayerId {
+        let resp = logic
+            .handle_message(client_id, ClientMessage::JoinGame { game_code })
+            .unwrap()
+            .expect("join_game should return a response");
+
+        match resp {
+            ServerMessage::JoinGameResponse(JoinGameResponse::Ok { player_id }) => player_id,
+            other => panic!("unexpected join_game response: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn handshake_ok_creates_client_in_lobby() {
+        let mut logic = ServerLogic::new();
+        let client_id: ClientId = 1;
+
+        let resp = handshake(&mut logic, client_id, "marcin");
+        assert!(matches!(
+            resp,
+            ServerMessage::HandshakeResponse(HandshakeResponse::Ok)
+        ));
+        assert!(matches!(logic.client_state(client_id), Some(ClientState::Lobby)));
+    }
+
+    #[test]
+    fn handshake_wrong_api_version_rejected() {
+        let mut logic = ServerLogic::new();
+        let client_id: ClientId = 1;
+
+        let resp = logic
+            .handle_message(
+                client_id,
+                ClientMessage::Handshake {
+                    api_version: API_VERSION + 1,
+                    nickname: "marcin".to_string(),
+                },
+            )
+            .unwrap()
+            .expect("handshake should return a response");
+
+        assert!(matches!(
+            resp,
+            ServerMessage::HandshakeResponse(HandshakeResponse::Error(_))
+        ));
+        assert!(logic.client_state(client_id).is_none());
+    }
+
+    #[test]
+    fn handshake_duplicate_client_rejected() {
+        let mut logic = ServerLogic::new();
+        let client_id: ClientId = 1;
+
+        let _ = handshake(&mut logic, client_id, "marcin");
+        let resp = handshake(&mut logic, client_id, "marcin2");
+
+        assert!(matches!(
+            resp,
+            ServerMessage::HandshakeResponse(HandshakeResponse::Error(_))
+        ));
+    }
+
+    #[test]
+    fn create_game_from_lobby_sets_state_in_game() {
+        let mut logic = ServerLogic::new();
+        let client_id: ClientId = 1;
+
+        let _ = handshake(&mut logic, client_id, "host");
+        let (game_code, _player_id) = create_game(&mut logic, client_id);
+
+        match logic.client_state(client_id) {
+            Some(ClientState::InGame { game_code: gc, .. }) => assert_eq!(gc, game_code),
+            other => panic!("expected InGame state, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn join_game_from_lobby_sets_state_in_game() {
+        let mut logic = ServerLogic::new();
+        let host_id: ClientId = 1;
+        let joiner_id: ClientId = 2;
+
+        let _ = handshake(&mut logic, host_id, "host");
+        let _ = handshake(&mut logic, joiner_id, "joiner");
+
+        let (game_code, _host_player_id) = create_game(&mut logic, host_id);
+        let _joiner_player_id = join_game(&mut logic, joiner_id, game_code.clone());
+
+        assert!(matches!(
+            logic.client_state(joiner_id),
+            Some(ClientState::InGame { game_code: gc, .. }) if gc == game_code
+        ));
+    }
+
+    #[test]
+    fn invalid_message_in_lobby_is_error() {
+        let mut logic = ServerLogic::new();
+        let client_id: ClientId = 1;
+
+        let _ = handshake(&mut logic, client_id, "p1");
+        let err = logic
+            .handle_message(client_id, ClientMessage::StartCountdown)
+            .unwrap_err();
+        assert!(err.contains("Invalid message"));
+    }
+
+    #[test]
+    fn start_countdown_requires_master_and_two_players() {
+        let mut logic = ServerLogic::new();
+        let host_id: ClientId = 1;
+        let joiner_id: ClientId = 2;
+
+        let _ = handshake(&mut logic, host_id, "host");
+        let _ = handshake(&mut logic, joiner_id, "joiner");
+
+        let (game_code, _host_player_id) = create_game(&mut logic, host_id);
+        let _ = join_game(&mut logic, joiner_id, game_code.clone());
+
+        // Non-master should be rejected.
+        let resp = logic
+            .handle_message(joiner_id, ClientMessage::StartCountdown)
+            .unwrap()
+            .expect("start_countdown returns a response");
+        assert!(matches!(
+            resp,
+            ServerMessage::StartCountdownResponse(StartCountdownResponse::Error(_))
+        ));
+
+        // Master should be accepted.
+        let resp = logic
+            .handle_message(host_id, ClientMessage::StartCountdown)
+            .unwrap()
+            .expect("start_countdown returns a response");
+        assert!(matches!(
+            resp,
+            ServerMessage::StartCountdownResponse(StartCountdownResponse::Ok)
+        ));
+    }
+
+    #[test]
+    fn join_game_rejected_when_game_not_in_lobby_state() {
+        let mut logic = ServerLogic::new();
+        let host_id: ClientId = 1;
+        let joiner_id: ClientId = 2;
+        let late_id: ClientId = 3;
+
+        let _ = handshake(&mut logic, host_id, "host");
+        let _ = handshake(&mut logic, joiner_id, "joiner");
+        let _ = handshake(&mut logic, late_id, "late");
+
+        let (game_code, _host_player_id) = create_game(&mut logic, host_id);
+        let _ = join_game(&mut logic, joiner_id, game_code.clone());
+
+        // Start countdown (transition out of lobby).
+        let _ = logic
+            .handle_message(host_id, ClientMessage::StartCountdown)
+            .unwrap();
+
+        // Late join should be rejected.
+        let resp = logic
+            .handle_message(late_id, ClientMessage::JoinGame { game_code })
+            .unwrap()
+            .expect("join_game returns a response");
+
+        assert!(matches!(
+            resp,
+            ServerMessage::JoinGameResponse(JoinGameResponse::Error(_))
+        ));
+    }
+
+    #[test]
+    fn game_input_in_game_returns_no_response() {
+        let mut logic = ServerLogic::new();
+        let host_id: ClientId = 1;
+
+        let _ = handshake(&mut logic, host_id, "host");
+        let (_game_code, _host_player_id) = create_game(&mut logic, host_id);
+
+        let input = common::protocol::InputPayload {
+            move_axis: Vec2::ZERO,
+            aim_pos: Vec2::ZERO,
+            shoot: true,
+        };
+
+        let resp = logic
+            .handle_message(host_id, ClientMessage::GameInput(input))
+            .unwrap();
+        assert!(resp.is_none());
+    }
+
+    #[test]
+    fn disconnect_removes_client_and_removes_game_when_last_player_leaves() {
+        let mut logic = ServerLogic::new();
+        let host_id: ClientId = 1;
+        let joiner_id: ClientId = 2;
+
+        let _ = handshake(&mut logic, host_id, "host");
+        let _ = handshake(&mut logic, joiner_id, "joiner");
+
+        let (game_code, _host_player_id) = create_game(&mut logic, host_id);
+        let _ = join_game(&mut logic, joiner_id, game_code.clone());
+
+        assert_eq!(logic.game_manager_mut().games.len(), 1);
+
+        logic.on_disconnect(host_id);
+        assert!(logic.client_state(host_id).is_none());
+        assert_eq!(logic.game_manager_mut().games.len(), 1, "game should remain with 1 player");
+
+        logic.on_disconnect(joiner_id);
+        assert!(logic.client_state(joiner_id).is_none());
+        assert_eq!(
+            logic.game_manager_mut().games.len(),
+            0,
+            "game should be removed when empty"
+        );
+    }
+}
+
 
