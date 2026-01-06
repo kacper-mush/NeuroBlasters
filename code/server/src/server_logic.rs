@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use common::protocol::{
-    API_VERSION, ApiVersion, ClientMessage, CreateGameResponse, HandshakeResponse, JoinGameResponse,
-    ServerMessage,
+    API_VERSION, ApiVersion, ClientMessage, CreateGameResponse, HandshakeResponse,
+    JoinGameResponse, ServerMessage,
 };
 use renet::ClientId;
 use tracing::debug;
@@ -79,9 +79,12 @@ impl ServerLogic {
 
         let (response, new_state) = match (&client.state, message) {
             (ClientState::Lobby, ClientMessage::CreateGame { map, rounds }) => {
-                let response =
-                    self.game_manager
-                        .create_game(client_id, client.nickname.clone(), map, rounds)?;
+                let response = self.game_manager.create_game(
+                    client_id,
+                    client.nickname.clone(),
+                    map,
+                    rounds,
+                )?;
 
                 let new_state = match &response {
                     CreateGameResponse::Ok(info) => Some(ClientState::InGame {

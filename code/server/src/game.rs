@@ -67,11 +67,7 @@ impl Game {
         self.players.is_empty()
     }
 
-    pub fn add_player(
-        &mut self,
-        client_id: ClientId,
-        nickname: String,
-    ) -> Option<PlayerId> {
+    pub fn add_player(&mut self, client_id: ClientId, nickname: String) -> Option<PlayerId> {
         let player_id = self.engine.add_player(nickname.clone()).ok()?;
         self.players
             .insert(client_id, (player_id, nickname.clone()));
@@ -80,9 +76,7 @@ impl Game {
     }
 
     pub fn remove_player(&mut self, client_id: ClientId) -> Option<PlayerId> {
-        let (player_id, nickname) = self
-            .players
-            .remove(&client_id)?;
+        let (player_id, nickname) = self.players.remove(&client_id)?;
         self.engine.remove_player(player_id);
         self.outgoing_events.push(GameEvent::PlayerLeft(nickname));
         Some(player_id)

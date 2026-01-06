@@ -79,7 +79,9 @@ impl GameManager {
 
         let mut game = Game::new(game_master, map, rounds);
 
-        let player_id = game.add_player(game_master, nickname).ok_or("Failed to add player to game")?;
+        let player_id = game
+            .add_player(game_master, nickname)
+            .ok_or("Failed to add player to game")?;
 
         self.games.insert(game_code.clone(), game);
         info!("Game created: {:?}", game_code);
@@ -107,10 +109,9 @@ impl GameManager {
         }
 
         match game.add_player(client_id, nickname) {
-            Some(player_id) => JoinGameResponse::Ok(game.initial_game_info(
-                game_code.clone(),
-                player_id,
-            )),
+            Some(player_id) => {
+                JoinGameResponse::Ok(game.initial_game_info(game_code.clone(), player_id))
+            }
             None => JoinGameResponse::GameFull,
         }
     }
@@ -120,7 +121,8 @@ impl GameManager {
             return Err("Game does not exist".to_string());
         };
 
-        game.remove_player(client_id).ok_or("Player not found in game")?;
+        game.remove_player(client_id)
+            .ok_or("Player not found in game")?;
 
         if game.is_empty() {
             self.games.remove(game_code);
@@ -141,9 +143,15 @@ impl GameManager {
 
         match game.start_countdown(client_id) {
             Ok(()) => Ok(StartCountdownResponse::Ok),
-            Err(StartCountdownError::NotEnoughPlayers) => Ok(StartCountdownResponse::NotEnoughPlayers),
-            Err(StartCountdownError::NotTheGameMaster) => Err("Only the game master can start the countdown".to_string()),
-            Err(StartCountdownError::NotInWaitingState) => Err("Game is not in waiting state".to_string()),
+            Err(StartCountdownError::NotEnoughPlayers) => {
+                Ok(StartCountdownResponse::NotEnoughPlayers)
+            }
+            Err(StartCountdownError::NotTheGameMaster) => {
+                Err("Only the game master can start the countdown".to_string())
+            }
+            Err(StartCountdownError::NotInWaitingState) => {
+                Err("Game is not in waiting state".to_string())
+            }
         }
     }
 
@@ -164,7 +172,8 @@ impl GameManager {
         client_id: ClientId,
     ) -> Result<(), String> {
         let game = self.games.get_mut(game_code).ok_or("Game does not exist")?;
-        game.remove_player(client_id).ok_or("Player not found in game")?;
+        game.remove_player(client_id)
+            .ok_or("Player not found in game")?;
 
         if game.is_empty() {
             self.games.remove(game_code);
