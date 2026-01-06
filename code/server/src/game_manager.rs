@@ -92,11 +92,17 @@ impl GameManager {
             return LeaveGameResponse::Error("Game does not exist".to_string());
         };
 
-        // TODO: Remove game if no players left
-        match game.remove_player(client_id) {
+        let result = match game.remove_player(client_id) {
             Ok(()) => LeaveGameResponse::Ok,
-            Err(e) => LeaveGameResponse::Error(e),
+            Err(e) => return LeaveGameResponse::Error(e),
+        };
+
+        if game.is_empty() {
+            self.games.remove(game_code);
+            info!("Game removed (no players left): {:?}", game_code);
         }
+
+        result
     }
 
     pub fn start_countdown(
@@ -136,7 +142,12 @@ impl GameManager {
     ) -> Result<(), String> {
         let game = self.games.get_mut(game_code).ok_or("Game does not exist")?;
         game.remove_player(client_id)?;
-        // TODO: Remove game if no players left
+
+        if game.is_empty() {
+            self.games.remove(game_code);
+            info!("Game removed (no players left): {:?}", game_code);
+        }
+
         Ok(())
     }
 

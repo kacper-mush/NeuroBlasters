@@ -52,6 +52,10 @@ impl Game {
         self.players.keys().copied().collect()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.players.is_empty()
+    }
+
     pub fn add_player(
         &mut self,
         client_id: ClientId,
