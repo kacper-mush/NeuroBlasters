@@ -2,7 +2,7 @@ pub mod pathfinding;
 
 use self::pathfinding::find_path_a_star;
 use crate::game::PROJECTILE_SPEED;
-use crate::net::protocol::{InputPayload, MapDefinition, Player, Projectile};
+use crate::net::protocol::objects::{InputPayload, MapDefinition, Player, Projectile};
 use glam::Vec2;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};

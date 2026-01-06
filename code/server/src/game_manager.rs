@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use tracing::info;
 
 use crate::game::{Game, GameCommand};
-use common::protocol::{ClientId, GameCode, GameUpdate};
+use common::protocol::{ClientId, GameCode, GameUpdate, GameState, MapId};
 
 pub struct GameManager {
     pub games: HashMap<GameCode, Game>,
@@ -27,27 +27,22 @@ impl GameManager {
         for game in self.games.values_mut() {
             game.tick(dt);
 
-            let players = game.players.clone().into_iter().collect();
-            let state = game.get_snapshot();
             let events = std::mem::take(&mut game.outgoing_events);
 
             let update = GameUpdate {
-                players,
-                state,
-                events,
+                snapshot: game.snapshot(),
+                events
             };
 
-            let recipients = game.players.keys().copied().collect();
-
-            updates.push((recipients, update));
+            updates.push((game.client_ids(), update));
         }
         updates
     }
 
-    pub fn create_game(&mut self) -> GameCode {
+    pub fn create_game(&mut self, game_master: ClientId, map_id: MapId, rounds: u8) -> GameCode {
         let code = self.generate_code();
-        self.games.insert(code.clone(), Game::new());
-        info!("Game created: {:?}", code);
+        self.games.insert(code.clone(), Game::new(game_master, map_id, rounds));
+        info!("Game created: {:?}", code);  
         code
     }
 
@@ -57,7 +52,23 @@ impl GameManager {
         command: GameCommand,
     ) -> Result<(), String> {
         let game = self.games.get_mut(game_code).ok_or("Game does not exist")?;
-        game.handle_command(command)?;
+
+        match (command, game.game_state_info()) {
+            (GameCommand::Input { client_id, input }, _) => {
+                game.handle_player_input(client_id, input);
+            }
+            (GameCommand::Leave { client_id }, _) => {
+                game.remove_player(client_id)?;
+            }
+            (GameCommand::Join { client_id, nickname }, GameState::Waiting) => {
+                game.add_player(client_id, nickname)?;
+            }
+            (GameCommand::StartCountdown { client_id }, GameState::Waiting) => {
+                game.start_countdown(client_id)?;
+            }
+            _ => return Err("Invalid command in current state".to_string()),
+        }
+
         Ok(())
     }
 

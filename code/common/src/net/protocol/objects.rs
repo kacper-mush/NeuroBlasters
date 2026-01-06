@@ -1,0 +1,89 @@
+pub use renet::ClientId;
+
+use bincode::{Decode, Encode};
+use glam::Vec2;
+use serde::{Deserialize, Serialize};
+
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct RectWall {
+    #[bincode(with_serde)]
+    pub min: Vec2,
+    #[bincode(with_serde)]
+    pub max: Vec2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+pub enum Team {
+    Blue,
+    Red,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct Player {
+    pub id: ClientId,
+    pub nickname: String,
+    pub team: Team,
+    #[bincode(with_serde)]
+    pub position: Vec2,
+    #[bincode(with_serde)]
+    pub velocity: Vec2,
+    pub rotation: f32,
+    pub radius: f32,
+    pub speed: f32,
+    pub health: f32,
+    pub weapon_cooldown: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct Projectile {
+    pub id: u64,
+    pub owner_id: ClientId,
+    #[bincode(with_serde)]
+    pub position: Vec2,
+    #[bincode(with_serde)]
+    pub velocity: Vec2,
+    pub radius: f32,
+}
+
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct InputPayload {
+    #[bincode(with_serde)]
+    pub move_axis: Vec2,
+    #[bincode(with_serde)]
+    pub aim_pos: Vec2,
+    pub shoot: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct MapDefinition {
+    pub width: f32,
+    pub height: f32,
+    pub walls: Vec<RectWall>,
+    #[bincode(with_serde)]
+    pub spawn_points: Vec<(Team, Vec2)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct GameSnapshot {
+    pub players: Vec<Player>,
+    pub projectiles: Vec<Projectile>,
+    pub map_id: MapId,
+    pub state: GameState,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub enum GameState {
+    Waiting,
+    Countdown(u64),
+    Battle,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct KillEvent {
+    pub killer_id: ClientId,
+    pub victim_id: ClientId,
+}
+
+pub type MapId = u16;

@@ -1,9 +1,9 @@
 use std::{collections::HashMap, net::SocketAddr, net::UdpSocket, time::Duration, time::Instant};
 
 use common::codec::{decode_client_message, encode_server_message};
-use common::protocol::{API_VERSION, ClientMessage, ServerMessage};
+use common::protocol::{API_VERSION, ClientMessage, ServerMessage, HandshakeResponse, CrateGameReponse, JoinGameResponse, LeaveGameResponse, StartCountdownResponse};
 
-use crate::client::ClientState;
+use crate::client::{Client, ClientState};
 use crate::game::GameCommand;
 use crate::game_manager::GameManager;
 
@@ -22,7 +22,7 @@ pub struct ServerApp {
     server: RenetServer,
     transport: NetcodeServerTransport,
 
-    clients: HashMap<ClientId, ClientState>,
+    clients: HashMap<ClientId, Client>,
     game_manager: GameManager,
 
     last_tick: Instant,
@@ -93,7 +93,7 @@ impl ServerApp {
             match event {
                 ServerEvent::ClientConnected { client_id } => {
                     info!(%client_id, "Client connected");
-                    self.clients.insert(client_id, ClientState::default());
+                    self.clients.insert(client_id, Client::default());
                 }
                 ServerEvent::ClientDisconnected { client_id, reason } => {
                     info!(%client_id, ?reason, "Client disconnected");
@@ -133,68 +133,62 @@ impl ServerApp {
         client_id: ClientId,
         message: ClientMessage,
     ) -> Result<Option<ServerMessage>, String> {
-        let client = self.clients.get_mut(&client_id).ok_or("Unknown sender")?;
-
-        let (response, new_state) = match (&*client, message) {
-            (
-                ClientState::Handshaking,
-                ClientMessage::Handshake {
-                    api_version,
-                    nickname,
-                },
-            ) => {
-                if api_version != API_VERSION {
-                    return Err("Api version mismatch".to_string());
+        // Handle handshake
+        if let ClientMessage::Handshake { api_version, nickname } = message {
+            if api_version != API_VERSION {
+                return Err("Api version mismatch".to_string());
+            } else {
+                if self.clients.contains_key(&client_id) {
+                    return Err("Client already connected".to_string());
                 } else {
-                    (
-                        Some(ServerMessage::Ok),
-                        Some(ClientState::Lobby { nickname }),
-                    )
+                    self.clients.insert(client_id, Client { nickname: nickname.clone(), state: ClientState::Lobby });
+                    return Ok(Some(ServerMessage::HandshakeResponse(HandshakeResponse::Ok)));
                 }
             }
+        }
 
-            (ClientState::Lobby { nickname }, ClientMessage::CreateGame) => {
-                let game_code = self.game_manager.create_game();
+        // Handle other messages
+        let client = self.clients.get_mut(&client_id).ok_or("Unknown sender")?;
+
+        let (response, new_state) = match (&client.state, message) { 
+            (ClientState::Lobby, ClientMessage::CreateGame { map, rounds }) => {
+                let game_code = self.game_manager.create_game(client_id, map, rounds);
                 self.game_manager.handle_game_command(
                     &game_code,
-                    GameCommand::Join(client_id, nickname.clone()),
+                    GameCommand::Join{ client_id, nickname: client.nickname.clone() },
                 )?;
                 (
-                    Some(ServerMessage::GameJoined {
-                        game_code: game_code.clone(),
-                    }),
+                    Some(ServerMessage::CrateGameReponse(CrateGameReponse::Ok { game_code: game_code.clone() })),
                     Some(ClientState::InGame { game_code }),
                 )
             }
 
-            (ClientState::Lobby { nickname }, ClientMessage::JoinGame { game_code }) => {
+            (ClientState::Lobby, ClientMessage::JoinGame { game_code }) => {
                 self.game_manager.handle_game_command(
                     &game_code,
-                    GameCommand::Join(client_id, nickname.clone()),
+                    GameCommand::Join{ client_id, nickname: client.nickname.clone() },
                 )?;
                 (
-                    Some(ServerMessage::GameJoined {
-                        game_code: game_code.clone(),
-                    }),
+                    Some(ServerMessage::JoinGameResponse(JoinGameResponse::Ok)),
                     Some(ClientState::InGame { game_code }),
                 )
             }
 
-            (ClientState::InGame { game_code, .. }, msg) => {
+            (ClientState::InGame { game_code}, msg) => {
                 match msg {
                     ClientMessage::LeaveGame => {
                         self.game_manager
-                            .handle_game_command(game_code, GameCommand::Leave(client_id))?;
-                        (Some(ServerMessage::Ok), None) // None means "don't change state"
+                            .handle_game_command(game_code, GameCommand::Leave{ client_id })?;
+                        (Some(ServerMessage::LeaveGameResponse(LeaveGameResponse::Ok)), Some(ClientState::Lobby))
                     }
                     ClientMessage::StartGame => {
                         self.game_manager
-                            .handle_game_command(game_code, GameCommand::StartGame(client_id))?;
-                        (Some(ServerMessage::Ok), None)
+                            .handle_game_command(game_code, GameCommand::StartCountdown{ client_id })?;
+                        (Some(ServerMessage::StartCountdownResponse(StartCountdownResponse::Ok)), None)
                     }
                     ClientMessage::GameInput(input) => {
                         self.game_manager
-                            .handle_game_command(game_code, GameCommand::Input(client_id, input))?;
+                            .handle_game_command(game_code, GameCommand::Input{ client_id, input })?;
                         (None, None)
                     }
                     _ => return Err("Invalid message in current state".to_string()),
@@ -204,7 +198,7 @@ impl ServerApp {
         };
 
         if let Some(s) = new_state {
-            *client = s;
+            client.state = s;
         }
 
         Ok(response)

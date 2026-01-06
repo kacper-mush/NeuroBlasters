@@ -67,8 +67,30 @@ impl GameEngine {
         GameTickResult { kills, winner }
     }
 
+    pub fn move_players_to_spawnpoints(&mut self) {
+        todo!();
+    }
+
     /// Helper to inject a player (e.g. on spawn)
-    pub fn add_player(&mut self, player: Player) {
+    pub fn add_player(&mut self, id: ClientId, nickname: String) -> Result<(), String> {
+        // check the player limit
+        if self.players.len() >= self.map.spawn_points.len() {
+            return Err("Player limit reached".to_string());
+        }
+
+        let position = self.random_free_position().ok_or("No free position found".to_string())?;
+        let team = if self.players.len() % 2 == 0 { Team::Blue } else { Team::Red };
+
+        let player = Player::new(id, nickname, team, position);
         self.players.push(player);
+        Ok(())
+    }
+
+    fn random_free_position(&self) -> Option<Vec2> {
+        todo!();
+    }
+
+    pub fn remove_player(&mut self, player_id: ClientId) {
+        self.players.retain(|player| player.id != player_id);
     }
 }
