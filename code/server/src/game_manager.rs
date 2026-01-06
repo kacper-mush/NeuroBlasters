@@ -22,6 +22,26 @@ impl GameManager {
         }
     }
 
+    /// Create a game manager with deterministic randomness (useful for tests).
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub fn new_seeded(seed: u64) -> Self {
+        Self {
+            games: HashMap::new(),
+            rng: StdRng::seed_from_u64(seed),
+        }
+    }
+
+    /// Create a game manager with a provided RNG (useful for tests).
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub fn new_with_rng(rng: StdRng) -> Self {
+        Self {
+            games: HashMap::new(),
+            rng,
+        }
+    }
+
     /// Advances all games by `dt`.
     /// Returns a list of (Recipients, UpdatePacket) pairs to be broadcasted.
     pub fn tick(&mut self, dt: f32) -> Vec<(Vec<ClientId>, GameUpdate)> {

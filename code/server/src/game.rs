@@ -5,6 +5,7 @@ use common::protocol::{
     MapName, PlayerId,
 };
 use std::collections::HashMap;
+use std::time::Duration;
 
 pub struct Game {
     state: GameState,
@@ -113,7 +114,7 @@ impl Game {
 
         match &mut self.state {
             GameState::Countdown(countdown) => {
-                if countdown.tick() {
+                if countdown.tick(Duration::from_secs_f32(dt)) {
                     self.state = GameState::Battle;
                     let active_player_ids: Vec<PlayerId> = self
                         .players
@@ -135,10 +136,9 @@ impl Game {
                 if let Some(winner) = result.winner {
                     self.outgoing_events.push(GameEvent::RoundEnded(winner));
                     self.rounds_left -= 1;
-                    if self.rounds_left == 0 {
-                        todo!()
+                    if self.rounds_left > 0 {
+                        self.state = GameState::Countdown(Countdown::default());
                     }
-                    self.state = GameState::Countdown(Countdown::default());
                 }
             }
             GameState::Waiting => {}
