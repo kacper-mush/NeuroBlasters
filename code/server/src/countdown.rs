@@ -1,16 +1,12 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub struct Countdown {
-    pub start_time: Instant,
-    pub duration: Duration,
+    remaining: Duration,
 }
 
 impl Countdown {
     pub fn new(duration: Duration) -> Self {
-        Self {
-            start_time: Instant::now(),
-            duration,
-        }
+        Self { remaining: duration }
     }
 
     pub fn default() -> Self {
@@ -18,13 +14,13 @@ impl Countdown {
     }
 
     /// Returns true if the countdown is finished, false otherwise.
-    pub fn tick(&mut self) -> bool {
-        self.start_time.elapsed() >= self.duration
+    pub fn tick(&mut self, dt: Duration) -> bool {
+        self.remaining = self.remaining.saturating_sub(dt);
+        self.remaining.is_zero()
     }
 
     pub fn seconds_left(&self) -> u64 {
-        self.duration
-            .as_secs()
-            .saturating_sub(self.start_time.elapsed().as_secs())
+        // Round up so the UI doesn't show 0 while we still have fractional time left.
+        (self.remaining.as_millis().div_ceil(1000)) as u64
     }
 }
