@@ -40,7 +40,7 @@ impl Debug for ClientState {
         let name = match self {
             ClientState::Disconnected => "Disconnected",
             ClientState::Connected => "Connected",
-            ClientState::Playing { .. } => "Playing",
+            ClientState::Playing => "Playing",
             ClientState::Error(_) => "Error",
         };
         f.write_str(name)
