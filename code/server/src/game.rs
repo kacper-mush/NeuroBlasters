@@ -37,7 +37,7 @@ impl Game {
 
     pub fn snapshot(&self) -> GameSnapshot {
         GameSnapshot {
-            players: self.engine.players.clone(),
+            tanks: self.engine.tanks.clone(),
             projectiles: self.engine.projectiles.clone(),
             state: self.game_state_info(),
             game_master: self.game_master,
@@ -128,12 +128,7 @@ impl Game {
             GameState::Countdown(countdown) => {
                 if countdown.tick(Duration::from_secs_f32(dt)) {
                     self.state = GameState::Battle;
-                    let active_player_ids: Vec<PlayerId> = self
-                        .players
-                        .values()
-                        .map(|(player_id, _)| *player_id)
-                        .collect();
-                    self.engine.move_players_to_spawnpoints(&active_player_ids);
+                    self.engine.prepare_new_round();
                 }
             }
             GameState::Battle => {
@@ -249,7 +244,7 @@ mod tests {
         // Aim at something different than our current position.
         let my_pos = g
             .snapshot()
-            .players
+            .tanks
             .iter()
             .find(|p| p.nickname == "p1")
             .unwrap()
@@ -267,7 +262,7 @@ mod tests {
 
         let my_pos = g
             .snapshot()
-            .players
+            .tanks
             .iter()
             .find(|p| p.nickname == "p1")
             .unwrap()
@@ -300,8 +295,8 @@ mod tests {
         id: PlayerId,
         nickname: &str,
         team: common::protocol::Team,
-    ) -> common::protocol::Player {
-        common::protocol::Player {
+    ) -> common::protocol::Tank {
+        common::protocol::Tank {
             id,
             nickname: nickname.to_string(),
             team,
@@ -351,7 +346,7 @@ mod tests {
 
         // Force battle state and inject players/projectile so resolve_combat produces a kill.
         g.state = GameState::Battle;
-        g.engine.players = vec![make_player(0, "killer", Team::Blue), {
+        g.engine.tanks = vec![make_player(0, "killer", Team::Blue), {
             let mut p = make_player(1, "victim", Team::Red);
             p.position = Vec2::new(200.0, 200.0);
             p.health = 1.0;
@@ -383,7 +378,7 @@ mod tests {
 
         // Force battle state and an immediate winner by having only one team alive.
         g.state = GameState::Battle;
-        g.engine.players = vec![make_player(0, "p1", common::protocol::Team::Red)];
+        g.engine.tanks = vec![make_player(0, "p1", common::protocol::Team::Red)];
 
         g.tick(0.0);
 
@@ -401,7 +396,7 @@ mod tests {
         let mut g = Game::new(master, MapName::Basic, 1);
 
         g.state = GameState::Battle;
-        g.engine.players = vec![make_player(0, "p1", common::protocol::Team::Red)];
+        g.engine.tanks = vec![make_player(0, "p1", common::protocol::Team::Red)];
 
         g.tick(0.0);
 

@@ -1,9 +1,10 @@
 pub mod engine;
 pub mod map;
 pub mod player;
+pub mod tank;
 
 pub use crate::net::protocol::{
-    InputPayload, KillEvent, MapDefinition, Player, Projectile, RectWall, Team,
+    InputPayload, KillEvent, MapDefinition, Projectile, RectWall, Tank, Team,
 };
 use glam::Vec2;
 use rand::Rng;
@@ -102,7 +103,7 @@ pub fn is_position_safe(pos: Vec2, radius: f32, map: &MapDefinition) -> bool {
 // --- Main Physics Logic ---
 
 pub fn apply_player_physics(
-    player: &mut Player,
+    player: &mut Tank,
     input: &InputPayload,
     map: &MapDefinition,
     dt: f32,
@@ -160,7 +161,7 @@ pub fn update_projectiles(projectiles: &mut Vec<Projectile>, map: &MapDefinition
 /// Handles weapon cooldown and bullet spawning.
 /// Returns Some(Projectile) if a bullet was fired this frame.
 pub fn handle_shooting(
-    player: &mut Player,
+    player: &mut Tank,
     input: &InputPayload,
     dt: f32,
     new_projectile_id: u64,
@@ -204,7 +205,7 @@ pub fn handle_shooting(
 /// 3. Returns a list of kills if any players died.
 /// 4. Removes dead players from the list (so they vanish from the game).
 pub fn resolve_combat(
-    players: &mut Vec<Player>,
+    players: &mut Vec<Tank>,
     projectiles: &mut Vec<Projectile>,
 ) -> Vec<KillEvent> {
     let mut kills = Vec::new();
@@ -248,7 +249,7 @@ pub fn resolve_combat(
 }
 
 /// Resolves collisions between players (prevent overlapping).
-pub fn resolve_player_collisions(players: &mut [Player]) {
+pub fn resolve_player_collisions(players: &mut [Tank]) {
     // Iterating with split_at_mut allows us to get mutable references to two distinct elements.
     for i in 0..players.len() {
         let (left, right) = players.split_at_mut(i + 1);
@@ -295,7 +296,7 @@ pub fn find_spawn_position(
 
 /// Checks if one team has been eliminated.
 /// Returns Some(Team) if a team has won (opponent wiped out), or None if the battle continues.
-pub fn check_round_winner(players: &[Player]) -> Option<Team> {
+pub fn check_round_winner(players: &[Tank]) -> Option<Team> {
     let mut blue_alive = 0;
     let mut red_alive = 0;
 
@@ -333,8 +334,8 @@ mod tests {
     use rand::rngs::mock::StepRng; // Or use a seeded StdRng
 
     // --- Helper to create dummy players ---
-    fn make_player(id: PlayerId, team: Team, pos: Vec2) -> Player {
-        Player {
+    fn make_player(id: PlayerId, team: Team, pos: Vec2) -> Tank {
+        Tank {
             id,
             team,
             position: pos,

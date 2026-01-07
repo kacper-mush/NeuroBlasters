@@ -56,7 +56,7 @@ impl View for Game {
             );
         }
 
-        for player in &game_engine.players {
+        for player in &game_engine.tanks {
             draw_circle(
                 transform_x(player.position.x),
                 transform_y(player.position.y),
@@ -215,6 +215,8 @@ impl View for Game {
                 .expect("Game context must be present.")
                 .game_engine;
             game_engine.players = update.snapshot.players;
+            let game_engine = self.game_engine.as_mut().unwrap();
+            game_engine.tanks = update.snapshot.tanks;
             game_engine.projectiles = update.snapshot.projectiles;
         }
     }

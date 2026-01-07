@@ -2,7 +2,7 @@ pub mod pathfinding;
 
 use self::pathfinding::find_path_a_star;
 use crate::game::PROJECTILE_SPEED;
-use crate::net::protocol::objects::{InputPayload, MapDefinition, Player, PlayerId, Projectile};
+use crate::net::protocol::objects::{InputPayload, MapDefinition, PlayerId, Projectile, Tank};
 use glam::Vec2;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -19,8 +19,8 @@ pub enum BotDifficulty {
 
 /// Everything a bot is allowed to know to make a decision.
 pub struct BotContext<'a> {
-    pub me: &'a Player,
-    pub players: &'a Vec<Player>,
+    pub me: &'a Tank,
+    pub players: &'a Vec<Tank>,
     pub projectiles: &'a Vec<Projectile>,
     pub map: &'a MapDefinition,
     pub dt: f32,
@@ -87,8 +87,8 @@ impl BotAgent {
     /// The Server calls this once per tick for every bot.
     pub fn generate_input(
         &mut self,
-        me: &Player,
-        players: &Vec<Player>,
+        me: &Tank,
+        players: &Vec<Tank>,
         projectiles: &Vec<Projectile>,
         map: &MapDefinition,
         dt: f32,
@@ -108,7 +108,7 @@ impl BotAgent {
 // ---- Helper functions for scripted behaviours ----
 
 /// Finds the closest living enemy to the bot.
-fn find_closest_enemy<'a>(ctx: &BotContext<'a>) -> Option<&'a Player> {
+fn find_closest_enemy<'a>(ctx: &BotContext<'a>) -> Option<&'a Tank> {
     ctx.players
         .iter()
         .filter(|p| {
