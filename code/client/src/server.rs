@@ -112,7 +112,10 @@ impl Server {
         let mut addrs = addrs;
         // Prefer IPv4 when both families are available (common for "localhost" resolving to ::1 first on Linux).
         addrs.sort_by_key(|a| if a.is_ipv4() { 0 } else { 1 });
-        let server_addr = addrs.first().copied().ok_or("Server not found.".to_string())?;
+        let server_addr = addrs
+            .first()
+            .copied()
+            .ok_or("Server not found.".to_string())?;
 
         let connection_config = ConnectionConfig::default();
 
