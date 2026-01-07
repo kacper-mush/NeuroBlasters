@@ -16,7 +16,7 @@ impl<B: Backend> BotBrain<B> {
     const INPUT_SIZE: usize = super::features::FEATURE_COUNT;
     const OUTPUT_SIZE: usize = 5;
 
-    const HIDDEN_SIZE: usize = 256;
+    const HIDDEN_SIZE: usize = 512;
 
     pub fn new(device: &B::Device) -> Self {
         Self {

@@ -152,9 +152,7 @@ async fn main() {
 
         population = new_pop;
         println!("Gen {} Complete.", gen);
-        if gen % 10 == 0 {
-            save_model(&population[0]);
-        }
+        save_model(&population[0]);
     }
 }
 

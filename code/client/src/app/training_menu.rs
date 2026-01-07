@@ -2,7 +2,7 @@ use crate::app::{AppContext, Transition, View, ViewId};
 use crate::ui;
 use ::rand::SeedableRng;
 use ::rand::rngs::StdRng;
-use burn::backend::NdArray;
+use burn::backend::Wgpu;
 use burn::module::Module;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use common::ai::BotContext;
@@ -12,7 +12,7 @@ use common::rl::{BotBrain, extract_features};
 use glam::Vec2;
 use macroquad::prelude::*;
 
-type ClientBackend = NdArray;
+type ClientBackend = Wgpu;
 
 pub(crate) struct TrainingMenu {
     game_engine: GameEngine,
