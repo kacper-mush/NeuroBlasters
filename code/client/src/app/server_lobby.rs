@@ -1,5 +1,5 @@
-use crate::app::game::Game;
 use crate::app::game_creation::GameCreation;
+use crate::app::game_view::GameView;
 use crate::app::request_view::RequestView;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
@@ -105,7 +105,7 @@ impl View for ServerLobby {
                     ctx.server.send_client_message(ClientMessage::JoinGame {
                         game_code: GameCode(self.game_code_field.text()),
                     });
-                    let success_view = Some(Box::new(Game::new()) as Box<dyn View>);
+                    let success_view = Some(Box::new(GameView::new()) as Box<dyn View>);
                     Transition::Push(Box::new(RequestView::new(
                         "Joining game...".into(),
                         success_view,

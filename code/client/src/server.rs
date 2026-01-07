@@ -1,10 +1,8 @@
 use std::fmt::Debug;
 use std::{mem, net::ToSocketAddrs};
 
-use common::game::MapDefinition;
-use common::game::engine::GameEngine;
 use common::protocol::{
-    API_VERSION, CreateGameResponse, GameState, GameUpdate, HandshakeResponse, JoinGameResponse,
+    API_VERSION, CreateGameResponse, GameUpdate, HandshakeResponse, JoinGameResponse,
     StartCountdownResponse,
 };
 use common::{
@@ -21,7 +19,9 @@ use std::time::{Instant, SystemTime};
 use renet::{ClientId, ConnectionConfig, RenetClient};
 use renet_netcode::{ClientAuthentication, NetcodeClientTransport};
 
-use crate::app::GameContext;
+use crate::app::game::Game;
+
+enum Request {}
 
 /// Represents in what state of the communication the client is
 pub(crate) enum ClientState {
@@ -164,14 +164,14 @@ impl Server {
         })
     }
 
-    // pub fn get_id(&self) -> ClientId {
-    //     self.client_id
-    // }
+    pub fn get_client_id(&self) -> ClientId {
+        self.connection_data
+            .as_ref()
+            .expect("Should not be called when there is no connection.")
+            .client_id
+    }
 
-    pub fn tick(
-        &mut self,
-        ctx: &mut Option<GameContext>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn tick(&mut self, ctx: &mut Option<Game>) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(rx) = &self.connect_rx {
             // Connecting to server has finished
             if let Ok(result) = rx.try_recv() {
@@ -201,7 +201,7 @@ impl Server {
                 .update(dt, &mut connection_data.client)?;
 
             if connection_data.client.is_connected() {
-                self.process_server_messages(&mut connection_data.client, ctx)?;
+                self.process_server_messages(&mut connection_data, ctx)?;
                 connection_data
                     .transport
                     .send_packets(&mut connection_data.client)?;
@@ -214,17 +214,22 @@ impl Server {
 
     fn process_server_messages(
         &mut self,
-        client: &mut RenetClient,
-        ctx: &mut Option<GameContext>,
+        connection_data: &mut ConnectionData,
+        ctx: &mut Option<Game>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        while let Some(message) = client.receive_message(RELIABLE_CHANNEL_ID) {
+        while let Some(message) = connection_data.client.receive_message(RELIABLE_CHANNEL_ID) {
             let server_msg = decode_server_message(&message)?;
-            self.process_message(server_msg, ctx);
+            self.process_message(server_msg, ctx, connection_data);
         }
         Ok(())
     }
 
-    fn process_message(&mut self, server_msg: ServerMessage, ctx: &mut Option<GameContext>) {
+    fn process_message(
+        &mut self,
+        server_msg: ServerMessage,
+        ctx: &mut Option<Game>,
+        connection_data: &mut ConnectionData,
+    ) {
         //println!("Got server message: {:?}", server_msg);
         let old_state = mem::replace(&mut self.client_state, ClientState::Disconnected);
         //println!("Client state was before: {:?}", old_state);
@@ -232,7 +237,7 @@ impl Server {
         self.client_state = match old_state {
             ClientState::Disconnected => self.handle_disconnected_state(server_msg),
 
-            ClientState::Connected => self.handle_connected_state(server_msg, ctx),
+            ClientState::Connected => self.handle_connected_state(server_msg, ctx, connection_data),
 
             ClientState::Playing => self.handle_playing_state(server_msg),
 
@@ -270,21 +275,16 @@ impl Server {
     fn handle_connected_state(
         &mut self,
         server_msg: ServerMessage,
-        ctx: &mut Option<GameContext>,
+        ctx: &mut Option<Game>,
+        connection_data: &mut ConnectionData,
     ) -> ClientState {
         match server_msg {
             ServerMessage::CreateGameReponse(resp) => match resp {
                 CreateGameResponse::Ok(initial_game_info) => {
+                    // Should resolve to true
+                    let is_host = initial_game_info.game_master == connection_data.client_id;
                     self.complete_request_fn(Ok(()), || {
-                        let map = MapDefinition::load_name(initial_game_info.map_name);
-                        let game_engine = GameEngine::new(map);
-                        *ctx = Some(GameContext {
-                            initial_game_info,
-                            game_engine,
-                            is_host: true,
-                            game_state: GameState::Waiting,
-                        });
-
+                        *ctx = Some(Game::new(initial_game_info, is_host));
                         ClientState::Playing
                     })
                 }
@@ -295,18 +295,15 @@ impl Server {
             },
 
             ServerMessage::JoinGameResponse(resp) => match resp {
-                JoinGameResponse::Ok(initial_game_info) => self.complete_request_fn(Ok(()), || {
-                    let map = MapDefinition::load_name(initial_game_info.map_name);
-                    let game_engine = GameEngine::new(map);
-                    *ctx = Some(GameContext {
-                        initial_game_info,
-                        game_engine,
-                        is_host: false,
-                        game_state: GameState::Waiting,
-                    });
+                JoinGameResponse::Ok(initial_game_info) => {
+                    // Will most likely resolve to false
+                    let is_host = initial_game_info.game_master == connection_data.client_id;
+                    self.complete_request_fn(Ok(()), || {
+                        *ctx = Some(Game::new(initial_game_info, is_host));
+                        ClientState::Playing
+                    })
+                }
 
-                    ClientState::Playing
-                }),
                 JoinGameResponse::GameFull => {
                     self.complete_request(Err("Game is full.".into()), ClientState::Connected)
                 }
