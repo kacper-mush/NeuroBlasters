@@ -37,8 +37,7 @@ impl Game {
 
     pub fn snapshot(&self) -> GameSnapshot {
         GameSnapshot {
-            tanks: self.engine.tanks.clone(),
-            projectiles: self.engine.projectiles.clone(),
+            engine: self.engine.snapshot(),
             state: self.game_state_info(),
             game_master: self.game_master,
             round_number: self.curr_round,
@@ -140,9 +139,7 @@ impl Game {
 
                 self.outgoing_events.append(&mut kill_events);
 
-                if let Some(winner) = result.winner
-                    && self.rounds_left > 0
-                {
+                if let Some(winner) = result.winner {
                     self.outgoing_events.push(GameEvent::RoundEnded(winner));
                     self.curr_round += 1;
                     if self.curr_round <= self.total_rounds {
@@ -151,7 +148,7 @@ impl Game {
                         // End of match: enter Results. Players can still move, but cannot shoot.
                         self.state = GameState::Results(winner);
                         // Clear any remaining projectiles so no post-match kills happen.
-                        self.engine.projectiles.clear();
+                        self.engine.clear_projectiles();
                     }
                 }
             }
@@ -182,7 +179,7 @@ enum GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::protocol::GameEvent;
+    use common::protocol::{EngineSnapshot, GameEvent};
     use glam::Vec2;
 
     fn input_shooting_towards(to: Vec2) -> InputPayload {
@@ -256,6 +253,7 @@ mod tests {
         // Aim at something different than our current position.
         let my_pos = g
             .snapshot()
+            .engine
             .tanks
             .iter()
             .find(|p| p.nickname == "p1")
@@ -266,7 +264,7 @@ mod tests {
         g.tick(0.0);
 
         // Countdown suppresses shooting.
-        assert_eq!(g.snapshot().projectiles.len(), 0);
+        assert_eq!(g.snapshot().engine.projectiles.len(), 0);
 
         // Transition to battle.
         g.tick(6.0);
@@ -274,6 +272,7 @@ mod tests {
 
         let my_pos = g
             .snapshot()
+            .engine
             .tanks
             .iter()
             .find(|p| p.nickname == "p1")
@@ -283,7 +282,7 @@ mod tests {
         g.handle_player_input(master, input_shooting_towards(my_pos + Vec2::X * 10.0));
         g.tick(0.0);
 
-        assert!(!g.snapshot().projectiles.is_empty());
+        assert!(!g.snapshot().engine.projectiles.is_empty());
     }
 
     #[test]
@@ -358,19 +357,21 @@ mod tests {
 
         // Force battle state and inject players/projectile so resolve_combat produces a kill.
         g.state = GameState::Battle;
-        g.engine.tanks = vec![make_player(0, "killer", Team::Blue), {
-            let mut p = make_player(1, "victim", Team::Red);
-            p.position = Vec2::new(200.0, 200.0);
-            p.health = 1.0;
-            p
-        }];
-        g.engine.projectiles = vec![Projectile {
-            id: 1,
-            owner_id: 0,
-            position: Vec2::new(200.0, 200.0), // hits victim immediately
-            velocity: Vec2::ZERO,
-            radius: 5.0,
-        }];
+        g.engine.apply_snapshot(EngineSnapshot {
+            tanks: vec![make_player(0, "killer", Team::Blue), {
+                let mut p = make_player(1, "victim", Team::Red);
+                p.position = Vec2::new(200.0, 200.0);
+                p.health = 1.0;
+                p
+            }],
+            projectiles: vec![Projectile {
+                id: 1,
+                owner_id: 0,
+                position: Vec2::new(200.0, 200.0), // hits victim immediately
+                velocity: Vec2::ZERO,
+                radius: 5.0,
+            }],
+        });
 
         g.tick(0.0);
 
@@ -390,7 +391,10 @@ mod tests {
 
         // Force battle state and an immediate winner by having only one team alive.
         g.state = GameState::Battle;
-        g.engine.tanks = vec![make_player(0, "p1", common::protocol::Team::Red)];
+        g.engine.apply_snapshot(EngineSnapshot {
+            tanks: vec![make_player(0, "p1", common::protocol::Team::Red)],
+            projectiles: Vec::new(),
+        });
 
         g.tick(0.0);
 
@@ -408,7 +412,10 @@ mod tests {
         let mut g = Game::new(master, MapName::Basic, 1);
 
         g.state = GameState::Battle;
-        g.engine.tanks = vec![make_player(0, "p1", common::protocol::Team::Red)];
+        g.engine.apply_snapshot(EngineSnapshot {
+            tanks: vec![make_player(0, "p1", common::protocol::Team::Red)],
+            projectiles: Vec::new(),
+        });
 
         g.tick(0.0);
 

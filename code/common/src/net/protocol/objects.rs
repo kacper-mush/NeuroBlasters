@@ -76,11 +76,16 @@ pub enum MapName {
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct GameSnapshot {
-    pub tanks: Vec<Tank>,
-    pub projectiles: Vec<Projectile>,
+    pub engine: EngineSnapshot,
     pub state: GameState,
     pub game_master: ClientId,
     pub round_number: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct EngineSnapshot {
+    pub tanks: Vec<Tank>,
+    pub projectiles: Vec<Projectile>,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]

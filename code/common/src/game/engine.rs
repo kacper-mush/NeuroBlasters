@@ -5,18 +5,18 @@ use super::{
 use crate::ai::{BotAgent, BotDifficulty};
 use crate::game::player::HumanInfo;
 use crate::net::protocol::{
-    InputPayload, KillEvent, MapDefinition, PlayerId, Projectile, Tank, Team,
+    EngineSnapshot, InputPayload, KillEvent, MapDefinition, PlayerId, Projectile, Tank, Team,
 };
 use glam::Vec2;
 use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct GameEngine {
-    pub tanks: Vec<Tank>,
-    pub projectiles: Vec<Projectile>,
-    pub map: MapDefinition,
+    tanks: Vec<Tank>,
+    projectiles: Vec<Projectile>,
+    map: MapDefinition,
     humans: Vec<HumanInfo>,
-    pub bots: Vec<BotAgent>,
+    bots: Vec<BotAgent>,
     next_player_id: PlayerId,
     projectile_id_counter: u64,
 }
@@ -37,6 +37,42 @@ impl GameEngine {
             next_player_id: 0,
             projectile_id_counter: 0,
         }
+    }
+
+    pub fn map(&self) -> &MapDefinition {
+        &self.map
+    }
+
+    pub fn tanks(&self) -> &[Tank] {
+        &self.tanks
+    }
+
+    pub fn projectiles(&self) -> &[Projectile] {
+        &self.projectiles
+    }
+
+    pub fn snapshot(&self) -> EngineSnapshot {
+        EngineSnapshot {
+            tanks: self.tanks.clone(),
+            projectiles: self.projectiles.clone(),
+        }
+    }
+
+    pub fn apply_snapshot(&mut self, snapshot: EngineSnapshot) {
+        self.tanks = snapshot.tanks;
+        self.projectiles = snapshot.projectiles;
+
+        self.projectile_id_counter = self
+            .projectiles
+            .iter()
+            .map(|p| p.id)
+            .max()
+            .map(|id| id.saturating_add(1))
+            .unwrap_or(0);
+    }
+
+    pub fn clear_projectiles(&mut self) {
+        self.projectiles.clear();
     }
 
     /// Updates the game world by one tick.
