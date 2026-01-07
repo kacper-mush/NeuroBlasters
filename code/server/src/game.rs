@@ -60,6 +60,7 @@ impl Game {
             GameState::Waiting => GameStateInfo::Waiting,
             GameState::Countdown(countdown) => GameStateInfo::Countdown(countdown.seconds_left()),
             GameState::Battle => GameStateInfo::Battle,
+            GameState::Results(winner) => GameStateInfo::Results(*winner),
         }
     }
 
@@ -108,14 +109,13 @@ impl Game {
             warn!(%client_id, "Player not found, ignoring input");
             return;
         };
-        let input = if let GameState::Battle = self.state {
-            input
-        } else {
-            // Players can't shoot if not in battle.
-            InputPayload {
+        let input = match self.state {
+            GameState::Battle => input,
+            // Countdown/Waiting/Results: movement/aim is allowed, shooting is not.
+            GameState::Waiting | GameState::Countdown(_) | GameState::Results(_) => InputPayload {
                 shoot: false,
                 ..input
-            }
+            },
         };
         self.inputs.insert(*player_id, input);
     }
@@ -140,15 +140,26 @@ impl Game {
 
                 self.outgoing_events.append(&mut kill_events);
 
-                if let Some(winner) = result.winner {
+                if let Some(winner) = result.winner
+                    && self.rounds_left > 0
+                {
                     self.outgoing_events.push(GameEvent::RoundEnded(winner));
                     self.curr_round += 1;
                     if self.curr_round <= self.total_rounds {
                         self.state = GameState::Countdown(Countdown::default());
+                    } else {
+                        // End of match: enter Results. Players can still move, but cannot shoot.
+                        self.state = GameState::Results(winner);
+                        // Clear any remaining projectiles so no post-match kills happen.
+                        self.engine.projectiles.clear();
                     }
                 }
             }
             GameState::Waiting => {}
+            GameState::Results(_winner) => {
+                // Stay in Results; GameEngine still ticks (movement/aim allowed),
+                // but inputs are already clamped to shoot=false in handle_player_input.
+            }
         }
     }
 }
@@ -165,6 +176,7 @@ enum GameState {
     Waiting,
     Countdown(Countdown),
     Battle,
+    Results(common::protocol::Team),
 }
 
 #[cfg(test)]
@@ -405,6 +417,15 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, GameEvent::RoundEnded(_)))
         );
-        assert!(matches!(g.game_state_info(), GameStateInfo::Battle));
+        assert!(matches!(g.game_state_info(), GameStateInfo::Results(_)));
+
+        // Winner remains true on subsequent ticks; this must NOT underflow rounds_left or emit more RoundEnded.
+        g.outgoing_events.clear();
+        g.tick(0.0);
+        assert!(
+            !g.outgoing_events
+                .iter()
+                .any(|e| matches!(e, GameEvent::RoundEnded(_)))
+        );
     }
 }

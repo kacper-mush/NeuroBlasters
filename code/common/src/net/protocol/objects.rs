@@ -88,6 +88,7 @@ pub enum GameState {
     Waiting,
     Countdown(u64),
     Battle,
+    Results(Team),
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]

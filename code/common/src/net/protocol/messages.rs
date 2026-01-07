@@ -5,7 +5,7 @@ use crate::protocol::InitialGameInfo;
 use super::objects::{GameSnapshot, InputPayload, KillEvent, MapName, Team};
 use bincode::{Decode, Encode};
 
-pub const API_VERSION: ApiVersion = 5;
+pub const API_VERSION: ApiVersion = 6;
 
 /// Messages from Client -> Server
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
