@@ -93,8 +93,12 @@ impl View for RequestView {
             return Transition::None;
         }
 
-        if let ClientState::Error(err) = &ctx.server.client_state {
-            return Transition::ConnectionLost(err.clone());
+        match &ctx.server.client_state {
+            ClientState::Error(err) => return Transition::ConnectionLost(err.clone()),
+            ClientState::Disconnected => {
+                return Transition::ConnectionLost("Disconnected from server.".into());
+            }
+            _ => {}
         }
 
         // Check for server request response

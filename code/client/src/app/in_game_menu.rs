@@ -99,6 +99,9 @@ impl View for InGameMenu {
             ClientState::Error(err) => {
                 return Transition::ConnectionLost(err.clone());
             }
+            ClientState::Disconnected => {
+                return Transition::ConnectionLost("Disconnected from server.".into());
+            }
             _ => {
                 panic!("Ended up in an invalid state!");
             }

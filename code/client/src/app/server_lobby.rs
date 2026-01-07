@@ -93,6 +93,9 @@ impl View for ServerLobby {
             ClientState::Connected => {
                 // Default state for this view
             }
+            ClientState::Disconnected => {
+                return Transition::ConnectionLost("Disconnected from server.".into());
+            }
             _ => {
                 panic!("Invalid server state for server lobby.");
             }

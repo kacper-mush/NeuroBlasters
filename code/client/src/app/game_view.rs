@@ -29,9 +29,13 @@ impl View for GameView {
             ClientState::Error(err) => {
                 return Transition::ConnectionLost(err.clone());
             }
-            _ => {
-                panic!("Ended up in an invalid state!");
+            ClientState::Disconnected => {
+                return Transition::ConnectionLost("Disconnected from server.".into());
             }
+            ClientState::Connected => {
+                return Transition::ConnectionLost("Connection reset.".into());
+            }
+
         }
 
         let game = ctx.game.as_mut().expect("Game context must be present.");
