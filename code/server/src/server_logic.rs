@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 
 use common::protocol::{
-    API_VERSION, ApiVersion, ClientMessage, CrateGameReponse, HandshakeResponse, JoinGameResponse,
-    LeaveGameResponse, ServerMessage,
+    API_VERSION, ApiVersion, ClientMessage, CreateGameResponse, HandshakeResponse,
+    JoinGameResponse, ServerMessage,
 };
 use renet::ClientId;
 use tracing::debug;
 
 use crate::client::{Client, ClientState};
 use crate::game_manager::GameManager;
+
+pub const MAX_CLIENTS: usize = 64;
 
 pub struct ServerLogic {
     clients: HashMap<ClientId, Client>,
@@ -68,9 +70,8 @@ impl ServerLogic {
             nickname,
         } = message
         {
-            return Ok(Some(ServerMessage::HandshakeResponse(
-                self.handle_handshake(client_id, api_version, nickname),
-            )));
+            let response = self.handle_handshake(client_id, api_version, nickname)?;
+            return Ok(Some(ServerMessage::HandshakeResponse(response)));
         }
 
         // Handle other messages
@@ -78,22 +79,22 @@ impl ServerLogic {
 
         let (response, new_state) = match (&client.state, message) {
             (ClientState::Lobby, ClientMessage::CreateGame { map, rounds }) => {
-                let response =
-                    self.game_manager
-                        .create_game(client_id, client.nickname.clone(), map, rounds);
+                let response = self.game_manager.create_game(
+                    client_id,
+                    client.nickname.clone(),
+                    map,
+                    rounds,
+                )?;
 
                 let new_state = match &response {
-                    CrateGameReponse::Ok {
-                        game_code,
-                        player_id,
-                    } => Some(ClientState::InGame {
-                        game_code: game_code.clone(),
-                        player_id: *player_id,
+                    CreateGameResponse::Ok(info) => Some(ClientState::InGame {
+                        game_code: info.game_code.clone(),
+                        player_id: info.player_id,
                     }),
                     _ => None,
                 };
 
-                (Some(ServerMessage::CrateGameReponse(response)), new_state)
+                (Some(ServerMessage::CreateGameReponse(response)), new_state)
             }
 
             (ClientState::Lobby, ClientMessage::JoinGame { game_code }) => {
@@ -101,12 +102,12 @@ impl ServerLogic {
                     self.game_manager
                         .join_game(&game_code, client_id, client.nickname.clone());
 
-                let new_state = match response {
-                    JoinGameResponse::Ok { player_id } => Some(ClientState::InGame {
-                        game_code,
-                        player_id,
+                let new_state = match &response {
+                    JoinGameResponse::Ok(info) => Some(ClientState::InGame {
+                        game_code: info.game_code.clone(),
+                        player_id: info.player_id,
                     }),
-                    JoinGameResponse::Error(_) => None,
+                    _ => None,
                 };
 
                 (Some(ServerMessage::JoinGameResponse(response)), new_state)
@@ -114,16 +115,11 @@ impl ServerLogic {
 
             (ClientState::InGame { game_code, .. }, msg) => match msg {
                 ClientMessage::LeaveGame => {
-                    let response = self.game_manager.leave_game(game_code, client_id);
-                    let new_state = match response {
-                        LeaveGameResponse::Ok => Some(ClientState::Lobby),
-                        LeaveGameResponse::Error(_) => None,
-                    };
-
-                    (Some(ServerMessage::LeaveGameResponse(response)), new_state)
+                    self.game_manager.leave_game(game_code, client_id)?;
+                    (Some(ServerMessage::LeaveGameAck), Some(ClientState::Lobby))
                 }
                 ClientMessage::StartCountdown => {
-                    let response = self.game_manager.start_countdown(game_code, client_id);
+                    let response = self.game_manager.start_countdown(game_code, client_id)?;
                     (Some(ServerMessage::StartCountdownResponse(response)), None)
                 }
                 ClientMessage::GameInput(input) => {
@@ -148,13 +144,17 @@ impl ServerLogic {
         client_id: ClientId,
         api_version: ApiVersion,
         nickname: String,
-    ) -> HandshakeResponse {
+    ) -> Result<HandshakeResponse, String> {
         if api_version != API_VERSION {
-            return HandshakeResponse::Error("Api version mismatch".to_string());
+            return Ok(HandshakeResponse::ApiMismatch);
         }
 
         if self.clients.contains_key(&client_id) {
-            return HandshakeResponse::Error("Client already connected".to_string());
+            return Err("Client already connected".to_string());
+        }
+
+        if self.clients.len() >= MAX_CLIENTS {
+            return Ok(HandshakeResponse::ServerFull);
         }
 
         self.clients.insert(
@@ -165,7 +165,7 @@ impl ServerLogic {
             },
         );
 
-        HandshakeResponse::Ok
+        Ok(HandshakeResponse::Ok)
     }
 }
 
@@ -173,7 +173,7 @@ impl ServerLogic {
 mod tests {
     use super::*;
     use common::protocol::{
-        ClientMessage, CrateGameReponse, GameCode, HandshakeResponse, JoinGameResponse, MapName,
+        ClientMessage, CreateGameResponse, GameCode, HandshakeResponse, JoinGameResponse, MapName,
         PlayerId, ServerMessage, StartCountdownResponse,
     };
     use glam::Vec2;
@@ -204,11 +204,10 @@ mod tests {
             .expect("create_game should return a response");
 
         match resp {
-            ServerMessage::CrateGameReponse(CrateGameReponse::Ok {
-                game_code,
-                player_id,
-            }) => (game_code, player_id),
-            _ => unreachable!("CreateGame must return CrateGameReponse::Ok in this test setup"),
+            ServerMessage::CreateGameReponse(CreateGameResponse::Ok(info)) => {
+                (info.game_code, info.player_id)
+            }
+            _ => unreachable!("CreateGame must return CreateGameResponse::Ok in this test setup"),
         }
     }
 
@@ -219,8 +218,8 @@ mod tests {
             .expect("join_game should return a response");
 
         match resp {
-            ServerMessage::JoinGameResponse(JoinGameResponse::Ok { player_id }) => player_id,
-            _ => unreachable!("JoinGame must return JoinGameResponse::Ok in this test setup"),
+            ServerMessage::JoinGameResponse(JoinGameResponse::Ok(info)) => info.player_id,
+            _ => unreachable!("JoinGame must return JoinGameResponse::Ok(_) in this test setup"),
         }
     }
 
@@ -258,7 +257,7 @@ mod tests {
 
         assert!(matches!(
             resp,
-            ServerMessage::HandshakeResponse(HandshakeResponse::Error(_))
+            ServerMessage::HandshakeResponse(HandshakeResponse::ApiMismatch)
         ));
         assert!(logic.client_state(client_id).is_none());
     }
@@ -269,12 +268,16 @@ mod tests {
         let client_id: ClientId = 1;
 
         let _ = handshake(&mut logic, client_id, "marcin");
-        let resp = handshake(&mut logic, client_id, "marcin2");
-
-        assert!(matches!(
-            resp,
-            ServerMessage::HandshakeResponse(HandshakeResponse::Error(_))
-        ));
+        let err = logic
+            .handle_message(
+                client_id,
+                ClientMessage::Handshake {
+                    api_version: API_VERSION,
+                    nickname: "marcin2".to_string(),
+                },
+            )
+            .unwrap_err();
+        assert!(err.contains("Client already connected"));
     }
 
     #[test]
@@ -333,14 +336,10 @@ mod tests {
         let _ = join_game(&mut logic, joiner_id, game_code.clone());
 
         // Non-master should be rejected.
-        let resp = logic
+        let err = logic
             .handle_message(joiner_id, ClientMessage::StartCountdown)
-            .unwrap()
-            .expect("start_countdown returns a response");
-        assert!(matches!(
-            resp,
-            ServerMessage::StartCountdownResponse(StartCountdownResponse::Error(_))
-        ));
+            .unwrap_err();
+        assert!(err.contains("Only the game master"));
 
         // Master should be accepted.
         let resp = logic
@@ -380,7 +379,7 @@ mod tests {
 
         assert!(matches!(
             resp,
-            ServerMessage::JoinGameResponse(JoinGameResponse::Error(_))
+            ServerMessage::JoinGameResponse(JoinGameResponse::GameStarted)
         ));
     }
 
@@ -486,10 +485,7 @@ mod tests {
             .unwrap()
             .expect("LeaveGame returns a response");
 
-        assert!(matches!(
-            resp,
-            ServerMessage::LeaveGameResponse(LeaveGameResponse::Ok)
-        ));
+        assert!(matches!(resp, ServerMessage::LeaveGameAck));
         assert!(matches!(
             logic.client_state(host_id),
             Some(ClientState::Lobby)
@@ -512,15 +508,10 @@ mod tests {
             player_id: 0,
         };
 
-        let resp = logic
+        let err = logic
             .handle_message(other_id, ClientMessage::LeaveGame)
-            .unwrap()
-            .expect("LeaveGame returns a response");
-
-        assert!(matches!(
-            resp,
-            ServerMessage::LeaveGameResponse(LeaveGameResponse::Error(_))
-        ));
+            .unwrap_err();
+        assert!(err.contains("Player not found"));
         assert!(matches!(
             logic.client_state(other_id),
             Some(ClientState::InGame { .. })

@@ -1,6 +1,8 @@
 pub use renet::ClientId;
 
-use super::objects::{GameSnapshot, InputPayload, KillEvent, MapName, PlayerId, Team};
+use crate::protocol::InitialGameInfo;
+
+use super::objects::{GameSnapshot, InputPayload, KillEvent, MapName, Team};
 use bincode::{Decode, Encode};
 
 pub const API_VERSION: ApiVersion = 4;
@@ -29,9 +31,9 @@ pub enum ClientMessage {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum ServerMessage {
     HandshakeResponse(HandshakeResponse),
-    CrateGameReponse(CrateGameReponse),
+    CreateGameReponse(CreateGameResponse),
     JoinGameResponse(JoinGameResponse),
-    LeaveGameResponse(LeaveGameResponse),
+    LeaveGameAck,
     StartCountdownResponse(StartCountdownResponse),
     GameUpdate(GameUpdate),
     Error(String),
@@ -58,34 +60,28 @@ pub enum GameEvent {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum HandshakeResponse {
     Ok,
-    Error(String),
+    ApiMismatch,
+    ServerFull,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub enum CrateGameReponse {
-    Ok {
-        game_code: GameCode,
-        player_id: PlayerId,
-    },
-    Error(String),
+pub enum CreateGameResponse {
+    Ok(InitialGameInfo),
+    TooManyGames,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum JoinGameResponse {
-    Ok { player_id: PlayerId },
-    Error(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub enum LeaveGameResponse {
-    Ok,
-    Error(String),
+    Ok(InitialGameInfo),
+    InvalidCode,
+    GameFull,
+    GameStarted,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum StartCountdownResponse {
     Ok,
-    Error(String),
+    NotEnoughPlayers,
 }
 
 /// Human–facing lobby code used to join games.

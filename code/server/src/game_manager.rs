@@ -3,16 +3,18 @@ use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use tracing::info;
 
-use crate::game::Game;
+use crate::game::{Game, StartCountdownError};
 use common::protocol::{
-    ClientId, CrateGameReponse, GameCode, GameState, GameUpdate, InputPayload, JoinGameResponse,
-    LeaveGameResponse, MapName, StartCountdownResponse,
+    ClientId, CreateGameResponse, GameCode, GameState, GameUpdate, InitialGameInfo, InputPayload,
+    JoinGameResponse, MapName, StartCountdownResponse,
 };
 
 pub struct GameManager {
     pub games: HashMap<GameCode, Game>,
     rng: StdRng,
 }
+
+const MAX_GAMES: usize = 128;
 
 impl GameManager {
     pub fn new() -> Self {
@@ -68,23 +70,28 @@ impl GameManager {
         nickname: String,
         map: MapName,
         rounds: u8,
-    ) -> CrateGameReponse {
+    ) -> Result<CreateGameResponse, String> {
+        if self.games.len() >= MAX_GAMES {
+            return Ok(CreateGameResponse::TooManyGames);
+        }
+
         let game_code = self.generate_code();
 
         let mut game = Game::new(game_master, map, rounds);
 
-        let player_id = match game.add_player(game_master, nickname) {
-            Ok(id) => id,
-            Err(e) => return CrateGameReponse::Error(e),
-        };
+        let player_id = game
+            .add_player(game_master, nickname)
+            .ok_or("Failed to add player to game")?;
 
         self.games.insert(game_code.clone(), game);
         info!("Game created: {:?}", game_code);
 
-        CrateGameReponse::Ok {
+        Ok(CreateGameResponse::Ok(InitialGameInfo {
             game_code,
             player_id,
-        }
+            num_rounds: rounds,
+            map_name: map,
+        }))
     }
 
     pub fn join_game(
@@ -94,53 +101,57 @@ impl GameManager {
         nickname: String,
     ) -> JoinGameResponse {
         let Some(game) = self.games.get_mut(game_code) else {
-            return JoinGameResponse::Error("Game does not exist".to_string());
+            return JoinGameResponse::InvalidCode;
         };
 
         if game.game_state_info() != GameState::Waiting {
-            return JoinGameResponse::Error("Game is not in lobby state".to_string());
+            return JoinGameResponse::GameStarted;
         }
 
         match game.add_player(client_id, nickname) {
-            Ok(player_id) => JoinGameResponse::Ok { player_id },
-            Err(e) => JoinGameResponse::Error(e),
+            Some(player_id) => {
+                JoinGameResponse::Ok(game.initial_game_info(game_code.clone(), player_id))
+            }
+            None => JoinGameResponse::GameFull,
         }
     }
 
-    pub fn leave_game(&mut self, game_code: &GameCode, client_id: ClientId) -> LeaveGameResponse {
+    pub fn leave_game(&mut self, game_code: &GameCode, client_id: ClientId) -> Result<(), String> {
         let Some(game) = self.games.get_mut(game_code) else {
-            return LeaveGameResponse::Error("Game does not exist".to_string());
+            return Err("Game does not exist".to_string());
         };
 
-        let result = match game.remove_player(client_id) {
-            Ok(()) => LeaveGameResponse::Ok,
-            Err(e) => return LeaveGameResponse::Error(e),
-        };
+        game.remove_player(client_id)
+            .ok_or("Player not found in game")?;
 
         if game.is_empty() {
             self.games.remove(game_code);
             info!("Game removed (no players left): {:?}", game_code);
         }
 
-        result
+        Ok(())
     }
 
     pub fn start_countdown(
         &mut self,
         game_code: &GameCode,
         client_id: ClientId,
-    ) -> StartCountdownResponse {
+    ) -> Result<StartCountdownResponse, String> {
         let Some(game) = self.games.get_mut(game_code) else {
-            return StartCountdownResponse::Error("Game does not exist".to_string());
+            return Err("Game does not exist".to_string());
         };
 
-        if game.game_state_info() != GameState::Waiting {
-            return StartCountdownResponse::Error("Game is not in lobby state".to_string());
-        }
-
         match game.start_countdown(client_id) {
-            Ok(()) => StartCountdownResponse::Ok,
-            Err(e) => StartCountdownResponse::Error(e),
+            Ok(()) => Ok(StartCountdownResponse::Ok),
+            Err(StartCountdownError::NotEnoughPlayers) => {
+                Ok(StartCountdownResponse::NotEnoughPlayers)
+            }
+            Err(StartCountdownError::NotTheGameMaster) => {
+                Err("Only the game master can start the countdown".to_string())
+            }
+            Err(StartCountdownError::NotInWaitingState) => {
+                Err("Game is not in waiting state".to_string())
+            }
         }
     }
 
@@ -161,7 +172,8 @@ impl GameManager {
         client_id: ClientId,
     ) -> Result<(), String> {
         let game = self.games.get_mut(game_code).ok_or("Game does not exist")?;
-        game.remove_player(client_id)?;
+        game.remove_player(client_id)
+            .ok_or("Player not found in game")?;
 
         if game.is_empty() {
             self.games.remove(game_code);
@@ -184,12 +196,12 @@ impl GameManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::protocol::{CrateGameReponse, GameEvent};
+    use common::protocol::{CreateGameResponse, GameEvent};
     use rand::SeedableRng;
 
-    fn unwrap_game_code(resp: CrateGameReponse) -> GameCode {
-        match resp {
-            CrateGameReponse::Ok { game_code, .. } => game_code,
+    fn unwrap_game_code(resp: Result<CreateGameResponse, String>) -> GameCode {
+        match resp.expect("create_game should not unexpectedly fail") {
+            CreateGameResponse::Ok(info) => info.game_code,
             _ => unreachable!("create_game should succeed for MapName::Basic"),
         }
     }
@@ -201,10 +213,7 @@ mod tests {
 
         let resp = gm.create_game(host, "host".to_string(), MapName::Basic, 3);
         let (game_code, player_id) = match resp {
-            CrateGameReponse::Ok {
-                game_code,
-                player_id,
-            } => (game_code, player_id),
+            Ok(CreateGameResponse::Ok(info)) => (info.game_code, info.player_id),
             _ => unreachable!("create_game should succeed for MapName::Basic"),
         };
 
@@ -226,7 +235,7 @@ mod tests {
     fn join_nonexistent_game_is_error() {
         let mut gm = GameManager::new_seeded(0);
         let resp = gm.join_game(&GameCode("9999".to_string()), 1, "p1".to_string());
-        assert!(matches!(resp, JoinGameResponse::Error(_)));
+        assert!(matches!(resp, JoinGameResponse::InvalidCode));
     }
 
     #[test]
@@ -242,11 +251,11 @@ mod tests {
         for i in 0..7 {
             let client_id: ClientId = 10 + i;
             let join = gm.join_game(&game_code, client_id, format!("p{client_id}"));
-            assert!(matches!(join, JoinGameResponse::Ok { .. }));
+            assert!(matches!(join, JoinGameResponse::Ok(_)));
         }
 
         let join = gm.join_game(&game_code, 999, "too_many".to_string());
-        assert!(matches!(join, JoinGameResponse::Error(_)));
+        assert!(matches!(join, JoinGameResponse::GameFull));
     }
 
     #[test]
@@ -257,8 +266,7 @@ mod tests {
         let game_code =
             unwrap_game_code(gm.create_game(host, "host".to_string(), MapName::Basic, 3));
 
-        let leave = gm.leave_game(&game_code, host);
-        assert!(matches!(leave, LeaveGameResponse::Ok));
+        gm.leave_game(&game_code, host).unwrap();
         assert!(!gm.games.contains_key(&game_code));
     }
 
@@ -266,7 +274,7 @@ mod tests {
     fn leave_nonexistent_game_is_error() {
         let mut gm = GameManager::new_seeded(0);
         let leave = gm.leave_game(&GameCode("9999".to_string()), 1);
-        assert!(matches!(leave, LeaveGameResponse::Error(_)));
+        assert!(leave.is_err());
     }
 
     #[test]
@@ -278,7 +286,7 @@ mod tests {
             unwrap_game_code(gm.create_game(host, "host".to_string(), MapName::Basic, 3));
 
         let leave = gm.leave_game(&game_code, 999);
-        assert!(matches!(leave, LeaveGameResponse::Error(_)));
+        assert!(leave.is_err());
         assert!(gm.games.contains_key(&game_code));
     }
 
@@ -292,21 +300,21 @@ mod tests {
             unwrap_game_code(gm.create_game(host, "host".to_string(), MapName::Basic, 3));
 
         let join = gm.join_game(&game_code, joiner, "joiner".to_string());
-        assert!(matches!(join, JoinGameResponse::Ok { .. }));
+        assert!(matches!(join, JoinGameResponse::Ok(_)));
 
         let start = gm.start_countdown(&game_code, host);
-        assert!(matches!(start, StartCountdownResponse::Ok));
+        assert!(matches!(start, Ok(StartCountdownResponse::Ok)));
 
         // Second attempt should be rejected (no longer in lobby state).
         let start_again = gm.start_countdown(&game_code, host);
-        assert!(matches!(start_again, StartCountdownResponse::Error(_)));
+        assert!(start_again.is_err());
     }
 
     #[test]
     fn start_countdown_nonexistent_game_is_error() {
         let mut gm = GameManager::new_seeded(0);
         let start = gm.start_countdown(&GameCode("9999".to_string()), 1);
-        assert!(matches!(start, StartCountdownResponse::Error(_)));
+        assert!(start.is_err());
     }
 
     #[test]

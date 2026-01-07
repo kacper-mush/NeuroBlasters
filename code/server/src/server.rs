@@ -3,14 +3,13 @@ use std::{net::SocketAddr, net::UdpSocket, time::Duration, time::Instant};
 use common::codec::{decode_client_message, encode_server_message};
 use common::protocol::ServerMessage;
 
-use crate::server_logic::ServerLogic;
+use crate::server_logic::{MAX_CLIENTS, ServerLogic};
 
 use renet::{ClientId, ConnectionConfig, RenetServer, ServerEvent};
 use renet_netcode::{NetcodeServerTransport, ServerAuthentication, ServerConfig};
 use tracing::{debug, info};
 
 const SERVER_PORT: u16 = 8080;
-const MAX_CLIENTS: usize = 64;
 const PROTOCOL_ID: u64 = 0;
 const RELIABLE_CHANNEL_ID: u8 = 0;
 
@@ -117,7 +116,7 @@ impl ServerApp {
                     Ok(None) => (),
                     Err(e) => {
                         debug!(%client_id, %e, "Failed to handle message");
-                        continue;
+                        self.send_message(client_id, ServerMessage::Error(e));
                     }
                 }
             }
