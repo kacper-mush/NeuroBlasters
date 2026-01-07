@@ -343,8 +343,8 @@ impl Button {
 
         if let Some(text_str) = text {
             self.text
-                .clone()
-                .unwrap_or_default()
+                .as_ref()
+                .unwrap_or(&Text::default())
                 .draw(text_str, x + w / 2., y + h / 2.);
         }
 

@@ -2,10 +2,13 @@ use crate::app::main_menu::MainMenu;
 use crate::app::popup::Popup;
 use crate::server::Server;
 use crate::ui::BACKGROUND_COLOR;
+use common::game::engine::GameEngine;
+use common::protocol::{GameState, InitialGameInfo};
 use macroquad::prelude::*;
 
 mod game;
 mod game_creation;
+mod in_game_menu;
 mod main_menu;
 mod options_menu;
 mod popup;
@@ -14,9 +17,17 @@ mod server_connect_menu;
 mod server_lobby;
 mod training_menu;
 
+pub(crate) struct GameContext {
+    pub initial_game_info: InitialGameInfo,
+    pub game_engine: GameEngine,
+    pub is_host: bool,
+    pub game_state: GameState,
+}
+
 // Global data that persists across views
 pub(crate) struct AppContext {
-    server: Server,
+    pub game_context: Option<GameContext>,
+    pub server: Server,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -92,6 +103,7 @@ impl App {
         App {
             stack: vec![Box::new(MainMenu::new())],
             context: AppContext {
+                game_context: None,
                 server: Server::new(),
             },
         }
@@ -99,7 +111,7 @@ impl App {
 
     pub async fn run(&mut self) {
         while !self.stack.is_empty() {
-            if let Err(e) = self.context.server.tick() {
+            if let Err(e) = self.context.server.tick(&mut self.context.game_context) {
                 // Simple for now
                 eprintln!(
                     "A network problem occured while handling server connection:\n {:?}",

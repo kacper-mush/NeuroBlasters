@@ -8,7 +8,7 @@ use crate::ui::{
 use macroquad::prelude::*;
 
 const TIME_TO_SHOW_ABORT: f64 = 5.;
-const TIME_TO_SHOW_BEFORE_ACTION: f64 = 1.;
+const TIME_TO_SHOW_BEFORE_ACTION: f64 = 0.7;
 
 // TODO: move it to somewhere nice :)
 struct Timer {
