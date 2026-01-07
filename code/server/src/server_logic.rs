@@ -146,6 +146,7 @@ impl ServerLogic {
         nickname: String,
     ) -> Result<HandshakeResponse, String> {
         if api_version != API_VERSION {
+            debug!(%client_id, ?api_version, "Handshake failed: API version mismatch");
             return Ok(HandshakeResponse::ApiMismatch);
         }
 
@@ -154,6 +155,7 @@ impl ServerLogic {
         }
 
         if self.clients.len() >= MAX_CLIENTS {
+            debug!(%client_id, "Handshake failed: server full");
             return Ok(HandshakeResponse::ServerFull);
         }
 
