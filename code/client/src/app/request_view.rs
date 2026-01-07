@@ -1,3 +1,4 @@
+use crate::app::popup::Popup;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
 use crate::ui::{
@@ -7,6 +8,7 @@ use crate::ui::{
 use macroquad::prelude::*;
 
 const TIME_TO_SHOW_ABORT: f64 = 5.;
+const TIME_TO_SHOW_BEFORE_ACTION: f64 = 1.;
 
 // TODO: move it to somewhere nice :)
 struct Timer {
@@ -29,18 +31,33 @@ impl Timer {
 
 pub(crate) struct RequestView {
     text: String,
-    success_transition: Transition,
+    success_view: Option<Box<dyn View>>,
+    success_transition: Option<Transition>,
     abort_clicked: bool,
     abort_show_timer: Timer,
+    time_to_show_timer: Timer,
 }
 
 impl RequestView {
-    pub fn new(text: String, success_transition: Transition) -> Self {
+    pub fn new(text: String, success_view: Option<Box<dyn View>>) -> Self {
         RequestView {
             text,
-            success_transition,
+            success_view,
+            success_transition: None,
             abort_clicked: false,
             abort_show_timer: Timer::new(TIME_TO_SHOW_ABORT),
+            time_to_show_timer: Timer::new(TIME_TO_SHOW_BEFORE_ACTION),
+        }
+    }
+
+    pub fn new_with_transition(text: String, success_transition: Transition) -> Self {
+        RequestView {
+            text,
+            success_view: None,
+            success_transition: Some(success_transition),
+            abort_clicked: false,
+            abort_show_timer: Timer::new(TIME_TO_SHOW_ABORT),
+            time_to_show_timer: Timer::new(TIME_TO_SHOW_BEFORE_ACTION),
         }
     }
 }
@@ -71,26 +88,40 @@ impl View for RequestView {
     }
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {
-        if ctx.server.is_none() {
-            return Transition::ConnectionLost("Server connection lost.".into());
+        // Do not handle anything for a short amount of time; prevents flashing this screen for a milisecond
+        if !self.time_to_show_timer.done() {
+            return Transition::None;
         }
 
-        let server = ctx.server.as_mut().unwrap();
-
-        match &server.client_state {
-            ClientState::Error(err) => {
-                return Transition::ConnectionLost(err.clone());
-            }
-            _ => {
-                // We listen and we don't judge
-            }
+        if let ClientState::Error(err) = &ctx.server.client_state {
+            return Transition::ConnectionLost(err.clone());
         }
 
         // check server request response
         // if present either success transition or display error
+        match ctx.server.take_request_response() {
+            None => {} // We are still waiting for a response
+            Some(resp) => {
+                return match resp {
+                    // Request was successful
+                    Ok(_) => match self.success_view.take() {
+                        // Our parent requested to go to another view on success
+                        Some(view) => Transition::PopAnd(view),
+                        // No custom view to go, maybe a custom transition?
+                        None => match self.success_transition.take() {
+                            Some(transition) => transition,
+                            // No view or transition, so we just pop ourselves
+                            None => Transition::Pop,
+                        },
+                    },
+                    // Request failed: show the reason why
+                    Err(reason) => Transition::PopAnd(Box::new(Popup::new(reason))),
+                };
+            }
+        }
 
         if self.abort_clicked {
-            Transition::Pop
+            Transition::ConnectionLost("User aborted connection.".into())
         } else {
             Transition::None
         }

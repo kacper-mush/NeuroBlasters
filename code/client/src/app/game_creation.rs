@@ -1,5 +1,5 @@
-use crate::app::popup::Popup;
-use crate::app::room_lobby::RoomLobby;
+use crate::app::game::Game;
+use crate::app::request_view::RequestView;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
 use crate::ui::{
@@ -10,10 +10,10 @@ use common::game::map::MapName;
 use common::protocol::ClientMessage;
 use macroquad::prelude::*;
 
-const ROUND_NUMBER_CHOICES: [u16; 5] = [1, 5, 10, 15, 20];
+const ROUND_NUMBER_CHOICES: [u8; 5] = [1, 5, 10, 15, 20];
 
 #[derive(Copy, Clone)]
-enum RoomCreationButtons {
+enum GameCreationButtons {
     MapScrollLeft,
     MapScrollRight,
     RoundScrollLeft,
@@ -22,13 +22,13 @@ enum RoomCreationButtons {
     Back,
 }
 
-pub(crate) struct RoomCreation {
-    button_pressed: Option<RoomCreationButtons>,
+pub(crate) struct GameCreation {
+    button_pressed: Option<GameCreationButtons>,
     round_index: usize,
     current_map: MapName,
 }
 
-impl RoomCreation {
+impl GameCreation {
     pub fn new() -> Self {
         Self {
             button_pressed: None,
@@ -38,7 +38,7 @@ impl RoomCreation {
     }
 }
 
-impl View for RoomCreation {
+impl View for GameCreation {
     fn draw(&mut self, _ctx: &AppContext) {
         // For scrollers
         let consitent_text = Text {
@@ -57,7 +57,7 @@ impl View for RoomCreation {
         let mut layout = Layout::new(100., 30.);
         self.button_pressed = None;
 
-        Text::new_title().draw("Create Room", x_mid, layout.next());
+        Text::new_title().draw("Create Game", x_mid, layout.next());
         layout.add(70.);
 
         Text::new_scaled(TEXT_MID).draw("Choose number of rounds:", x_mid, layout.next());
@@ -70,13 +70,13 @@ impl View for RoomCreation {
             .draw_centered(x_mid - 100., layout.next(), 50., 50., Some("<"))
             .poll()
         {
-            self.button_pressed = Some(RoomCreationButtons::RoundScrollLeft);
+            self.button_pressed = Some(GameCreationButtons::RoundScrollLeft);
         }
         if Button::default()
             .draw_centered(x_mid + 100., layout.next(), 50., 50., Some(">"))
             .poll()
         {
-            self.button_pressed = Some(RoomCreationButtons::RoundScrollRight);
+            self.button_pressed = Some(GameCreationButtons::RoundScrollRight);
         }
         layout.add(el_h);
 
@@ -89,13 +89,13 @@ impl View for RoomCreation {
             .draw_centered(x_mid - 100., layout.next(), 50., 50., Some("<"))
             .poll()
         {
-            self.button_pressed = Some(RoomCreationButtons::MapScrollLeft);
+            self.button_pressed = Some(GameCreationButtons::MapScrollLeft);
         }
         if Button::default()
             .draw_centered(x_mid + 100., layout.next(), 50., 50., Some(">"))
             .poll()
         {
-            self.button_pressed = Some(RoomCreationButtons::MapScrollRight);
+            self.button_pressed = Some(GameCreationButtons::MapScrollRight);
         }
         layout.add(el_h);
 
@@ -103,7 +103,7 @@ impl View for RoomCreation {
             .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Create"))
             .poll()
         {
-            self.button_pressed = Some(RoomCreationButtons::Create);
+            self.button_pressed = Some(GameCreationButtons::Create);
         }
         layout.add(el_h);
 
@@ -111,68 +111,55 @@ impl View for RoomCreation {
             .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Back"))
             .poll()
         {
-            self.button_pressed = Some(RoomCreationButtons::Back);
+            self.button_pressed = Some(GameCreationButtons::Back);
         }
     }
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {
-        if ctx.server.is_none() {
-            return Transition::ConnectionLost;
+        if let ClientState::Error(err) = &ctx.server.client_state {
+            return Transition::ConnectionLost(err.clone());
         }
 
-        let server = ctx.server.as_mut().unwrap();
-
-        match &server.client_state {
-            ClientState::Error => {
-                return Transition::ConnectionLost;
+        match &ctx.server.client_state {
+            ClientState::Error(err) => {
+                return Transition::ConnectionLost(err.clone());
             }
             ClientState::Connected => {
                 // That's the default state for this view
             }
-            ClientState::WaitingForRoom => {
-                // We are waiting for a response
-            }
-            ClientState::InRoom {
-                game_code,
-                player_names,
-            } => {
-                return Transition::Push(Box::new(RoomLobby::new(
-                    game_code.clone(),
-                    player_names.clone(),
-                )));
-            }
             _ => {
-                panic!("Ended up in an invalid state!");
+                panic!("Invalid server state for game creation view.");
             }
         }
 
         match self.button_pressed {
             Some(button) => match button {
-                RoomCreationButtons::Create => {
-                    let res = server.send_client_message(ClientMessage::CreateGame);
-                    if res.is_err() {
-                        // This is more of a "could not send the request", but this is simplified for now
-                        return Transition::Push(Box::new(Popup::new(
-                            "Could not create the room!".into(),
-                        )));
-                    }
-                    Transition::None
+                GameCreationButtons::Create => {
+                    ctx.server.send_client_message(ClientMessage::CreateGame {
+                        map: self.current_map,
+                        rounds: ROUND_NUMBER_CHOICES[self.round_index],
+                    });
+                    let success_view = Some(Box::new(Game::new()) as Box<dyn View>);
+                    Transition::Push(Box::new(RequestView::new(
+                        "Creating game...".into(),
+                        success_view,
+                    )))
                 }
-                RoomCreationButtons::Back => Transition::Pop,
-                RoomCreationButtons::MapScrollLeft => {
+                GameCreationButtons::Back => Transition::Pop,
+                GameCreationButtons::MapScrollLeft => {
                     self.current_map = self.current_map.prev();
                     Transition::None
                 }
-                RoomCreationButtons::MapScrollRight => {
+                GameCreationButtons::MapScrollRight => {
                     self.current_map = self.current_map.next();
                     Transition::None
                 }
-                RoomCreationButtons::RoundScrollLeft => {
+                GameCreationButtons::RoundScrollLeft => {
                     let len = ROUND_NUMBER_CHOICES.len();
                     self.round_index = (len + self.round_index - 1) % len;
                     Transition::None
                 }
-                RoomCreationButtons::RoundScrollRight => {
+                GameCreationButtons::RoundScrollRight => {
                     let len = ROUND_NUMBER_CHOICES.len();
                     self.round_index = (self.round_index + 1) % len;
                     Transition::None
@@ -183,6 +170,6 @@ impl View for RoomCreation {
     }
 
     fn get_id(&self) -> ViewId {
-        ViewId::RoomCreation
+        ViewId::GameCreation
     }
 }

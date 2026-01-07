@@ -1,5 +1,6 @@
-use crate::app::room_creation::RoomCreation;
-use crate::app::room_lobby::RoomLobby;
+use crate::app::game::Game;
+use crate::app::game_creation::GameCreation;
+use crate::app::request_view::RequestView;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
 use crate::ui::{
@@ -10,29 +11,29 @@ use common::protocol::{ClientMessage, GameCode};
 use macroquad::prelude::*;
 
 #[derive(Clone, Copy)]
-enum RoomMenuButtons {
+enum ServerLobbyButtons {
     Create,
     Join,
     Back,
 }
 
-pub(crate) struct RoomMenu {
-    button_pressed: Option<RoomMenuButtons>,
-    room_code_field: TextField,
+pub(crate) struct ServerLobby {
+    button_pressed: Option<ServerLobbyButtons>,
+    game_code_field: TextField,
     message: Option<String>,
 }
 
-impl RoomMenu {
+impl ServerLobby {
     pub fn new() -> Self {
-        RoomMenu {
+        ServerLobby {
             button_pressed: None,
-            room_code_field: TextField::new_simple(10),
+            game_code_field: TextField::new_simple(10),
             message: None,
         }
     }
 }
 
-impl View for RoomMenu {
+impl View for ServerLobby {
     fn draw(&mut self, _ctx: &AppContext) {
         let x_mid = CANONICAL_SCREEN_MID_X;
         let el_w = BUTTON_W;
@@ -41,31 +42,31 @@ impl View for RoomMenu {
 
         self.button_pressed = None;
 
-        Text::new_title().draw("Rooms", x_mid, layout.next());
+        Text::new_title().draw("Games", x_mid, layout.next());
         layout.add(70.);
 
         if Button::default()
             .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Create new"))
             .poll()
         {
-            self.button_pressed = Some(RoomMenuButtons::Create);
+            self.button_pressed = Some(ServerLobbyButtons::Create);
         }
         layout.add(el_h);
 
-        Text::new_scaled(TEXT_MID).draw("Room code:", x_mid, layout.next());
+        Text::new_scaled(TEXT_MID).draw("Game code:", x_mid, layout.next());
         layout.add(20.);
 
         let left_x = x_mid - el_w / 4.;
         let right_x = x_mid + el_w / 4.;
 
-        self.room_code_field
+        self.game_code_field
             .draw_centered(left_x, layout.next(), el_w / 2., el_h);
 
         if Button::default()
             .draw_centered(right_x, layout.next(), el_w / 2., el_h, Some("Join"))
             .poll()
         {
-            self.button_pressed = Some(RoomMenuButtons::Join);
+            self.button_pressed = Some(ServerLobbyButtons::Join);
         }
         layout.add(el_h);
 
@@ -73,7 +74,7 @@ impl View for RoomMenu {
             .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Back"))
             .poll()
         {
-            self.button_pressed = Some(RoomMenuButtons::Back);
+            self.button_pressed = Some(ServerLobbyButtons::Back);
         }
         layout.add(el_h);
 
@@ -83,54 +84,35 @@ impl View for RoomMenu {
     }
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {
-        self.room_code_field.update();
+        self.game_code_field.update();
 
-        if ctx.server.is_none() {
-            return Transition::ConnectionLost;
-        }
-
-        let server = ctx.server.as_mut().unwrap();
-
-        match &server.client_state {
-            ClientState::Error => {
-                return Transition::ConnectionLost;
+        match &ctx.server.client_state {
+            ClientState::Error(err) => {
+                return Transition::ConnectionLost(err.clone());
             }
             ClientState::Connected => {
-                // That's the default state for this view
-            }
-            ClientState::WaitingForRoom => {
-                // We are waiting for a response
-            }
-            ClientState::InRoom {
-                game_code,
-                player_names,
-            } => {
-                return Transition::Push(Box::new(RoomLobby::new(
-                    game_code.clone(),
-                    player_names.clone(),
-                )));
+                // Default state for this view
             }
             _ => {
-                panic!("Ended up in an invalid state!");
+                panic!("Invalid server state for server lobby.");
             }
         }
 
         match self.button_pressed {
             Some(button) => match button {
-                RoomMenuButtons::Create => Transition::Push(Box::new(RoomCreation::new())),
-                RoomMenuButtons::Join => {
-                    let res = server.send_client_message(ClientMessage::JoinGame {
-                        game_code: GameCode(self.room_code_field.text()),
+                ServerLobbyButtons::Create => Transition::Push(Box::new(GameCreation::new())),
+                ServerLobbyButtons::Join => {
+                    ctx.server.send_client_message(ClientMessage::JoinGame {
+                        game_code: GameCode(self.game_code_field.text()),
                     });
-
-                    if res.is_err() {
-                        self.message = Some("Could not join the room!".into());
-                    }
-
-                    Transition::None
+                    let success_view = Some(Box::new(Game::new()) as Box<dyn View>);
+                    Transition::Push(Box::new(RequestView::new(
+                        "Joining game...".into(),
+                        success_view,
+                    )))
                 }
-                RoomMenuButtons::Back => {
-                    ctx.server.take(); // Close server connection
+                ServerLobbyButtons::Back => {
+                    ctx.server.close();
                     Transition::Pop
                 }
             },
@@ -141,11 +123,11 @@ impl View for RoomMenu {
     fn on_resume(&mut self, _ctx: &mut AppContext, from_overlay: bool) {
         if !from_overlay {
             self.message = None;
-            self.room_code_field.reset();
+            self.game_code_field.reset();
         }
     }
 
     fn get_id(&self) -> ViewId {
-        ViewId::RoomMenu
+        ViewId::ServerLobby
     }
 }
