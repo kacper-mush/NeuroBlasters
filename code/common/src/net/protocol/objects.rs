@@ -24,7 +24,7 @@ pub enum Team {
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct Player {
+pub struct Tank {
     pub id: PlayerId,
     pub nickname: String,
     pub team: Team,
@@ -76,11 +76,16 @@ pub enum MapName {
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct GameSnapshot {
-    pub players: Vec<Player>,
-    pub projectiles: Vec<Projectile>,
+    pub engine: EngineSnapshot,
     pub state: GameState,
     pub game_master: ClientId,
     pub round_number: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct EngineSnapshot {
+    pub tanks: Vec<Tank>,
+    pub projectiles: Vec<Projectile>,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
@@ -88,6 +93,7 @@ pub enum GameState {
     Waiting,
     Countdown(u64),
     Battle,
+    Results(Team),
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]

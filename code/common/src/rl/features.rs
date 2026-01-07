@@ -1,5 +1,5 @@
 use crate::ai::BotContext;
-use crate::game::{FIRE_RATE, Player, RectWall};
+use crate::game::{FIRE_RATE, RectWall, Tank};
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
 use glam::Vec2;
@@ -54,7 +54,7 @@ pub fn extract_features<B: Backend>(ctx: &BotContext, device: &B::Device) -> Ten
 
 // --- Helpers ---
 
-fn find_closest_enemy<'a>(ctx: &BotContext<'a>) -> Option<&'a Player> {
+fn find_closest_enemy<'a>(ctx: &BotContext<'a>) -> Option<&'a Tank> {
     ctx.players
         .iter()
         .filter(|p| p.id != ctx.me.id && p.team != ctx.me.team && p.health > 0.0)

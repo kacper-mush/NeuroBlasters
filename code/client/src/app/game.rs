@@ -30,8 +30,9 @@ impl View for Game {
 
         clear_background(LIGHTGRAY);
 
-        let (scaling, x_offset, y_offset) =
-            calc_transform(game_engine.map.width, game_engine.map.height);
+        let map = game_engine.map();
+
+        let (scaling, x_offset, y_offset) = calc_transform(map.width, map.height);
         let transform_x = |x: f32| x * scaling + x_offset;
         let transform_y = |y: f32| y * scaling + y_offset;
         let scale = |dim: f32| dim * scaling;
@@ -40,13 +41,13 @@ impl View for Game {
         draw_rectangle(
             transform_x(0.),
             transform_y(0.),
-            scale(game_engine.map.width),
-            scale(game_engine.map.height),
+            scale(map.width),
+            scale(map.height),
             GRAY,
         );
 
         // Draw Map
-        for wall in &game_engine.map.walls {
+        for wall in &map.walls {
             draw_rectangle(
                 transform_x(wall.min.x),
                 transform_y(wall.min.y),
@@ -56,7 +57,7 @@ impl View for Game {
             );
         }
 
-        for player in &game_engine.players {
+        for player in game_engine.tanks() {
             draw_circle(
                 transform_x(player.position.x),
                 transform_y(player.position.y),
@@ -114,7 +115,7 @@ impl View for Game {
             );
         }
 
-        for projectile in &game_engine.projectiles {
+        for projectile in game_engine.projectiles() {
             draw_circle(
                 transform_x(projectile.position.x),
                 transform_y(projectile.position.y),
@@ -145,14 +146,14 @@ impl View for Game {
             .expect("Game context must be present.");
 
         if let Some(update) = ctx.server.game_update() {
-            game_ctx.game_engine.players = update.snapshot.players;
-            game_ctx.game_engine.projectiles = update.snapshot.projectiles;
-            game_ctx.game_state = update.snapshot.state;
+            let snapshot = update.snapshot;
+            game_ctx.game_engine.apply_snapshot(snapshot.engine);
+            game_ctx.game_state = snapshot.state;
         }
 
         let (scaling, x_offset, y_offset) = calc_transform(
-            game_ctx.game_engine.map.width,
-            game_ctx.game_engine.map.height,
+            game_ctx.game_engine.map().width,
+            game_ctx.game_engine.map().height,
         );
         let inv_transform_x = |x: f32| (x - x_offset) / scaling;
         let inv_transform_y = |y: f32| (y - y_offset) / scaling;
@@ -214,8 +215,8 @@ impl View for Game {
                 .as_mut()
                 .expect("Game context must be present.")
                 .game_engine;
-            game_engine.players = update.snapshot.players;
-            game_engine.projectiles = update.snapshot.projectiles;
+
+            game_engine.apply_snapshot(update.snapshot.engine);
         }
     }
 }

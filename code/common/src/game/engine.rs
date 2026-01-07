@@ -3,18 +3,20 @@ use super::{
     resolve_player_collisions, update_projectiles,
 };
 use crate::ai::{BotAgent, BotDifficulty};
+use crate::game::player::HumanInfo;
 use crate::net::protocol::{
-    InputPayload, KillEvent, MapDefinition, Player, PlayerId, Projectile, Team,
+    EngineSnapshot, InputPayload, KillEvent, MapDefinition, PlayerId, Projectile, Tank, Team,
 };
 use glam::Vec2;
 use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct GameEngine {
-    pub players: Vec<Player>,
-    pub projectiles: Vec<Projectile>,
-    pub map: MapDefinition,
-    pub bots: Vec<BotAgent>,
+    tanks: Vec<Tank>,
+    projectiles: Vec<Projectile>,
+    map: MapDefinition,
+    humans: Vec<HumanInfo>,
+    bots: Vec<BotAgent>,
     next_player_id: PlayerId,
     projectile_id_counter: u64,
 }
@@ -27,111 +29,150 @@ pub struct GameTickResult {
 impl GameEngine {
     pub fn new(map: MapDefinition) -> Self {
         Self {
-            players: Vec::new(),
+            tanks: Vec::new(),
             projectiles: Vec::new(),
             map,
+            humans: Vec::new(),
             bots: Vec::new(),
             next_player_id: 0,
             projectile_id_counter: 0,
         }
     }
 
+    pub fn map(&self) -> &MapDefinition {
+        &self.map
+    }
+
+    pub fn tanks(&self) -> &[Tank] {
+        &self.tanks
+    }
+
+    pub fn projectiles(&self) -> &[Projectile] {
+        &self.projectiles
+    }
+
+    pub fn snapshot(&self) -> EngineSnapshot {
+        EngineSnapshot {
+            tanks: self.tanks.clone(),
+            projectiles: self.projectiles.clone(),
+        }
+    }
+
+    pub fn apply_snapshot(&mut self, snapshot: EngineSnapshot) {
+        self.tanks = snapshot.tanks;
+        self.projectiles = snapshot.projectiles;
+
+        self.projectile_id_counter = self
+            .projectiles
+            .iter()
+            .map(|p| p.id)
+            .max()
+            .map(|id| id.saturating_add(1))
+            .unwrap_or(0);
+    }
+
+    pub fn clear_projectiles(&mut self) {
+        self.projectiles.clear();
+    }
+
     /// Updates the game world by one tick.
     ///
     /// * `dt`: Delta time in seconds.
-    /// * `inputs`: A map of inputs for each player. If a player has no input in this map, they stay still.
+    /// * `inputs`: A map of inputs for each human tank. Missing entries mean idle.
     ///
     /// Returns a list of kills that happened during this tick.
-    pub fn tick(
-        &mut self,
-        dt: f32,
-        mut all_inputs: HashMap<PlayerId, InputPayload>,
-    ) -> GameTickResult {
-        for i in 0..self.bots.len() {
-            let bot = &mut self.bots[i];
-            let me_id = bot.id;
-            let players = &self.players;
-            let projectiles = &self.projectiles;
-            let map = &self.map;
+    pub fn tick(&mut self, dt: f32, mut inputs: HashMap<PlayerId, InputPayload>) -> GameTickResult {
+        self.inject_bot_inputs(&mut inputs, dt);
 
-            if let Some(me_index) = players.iter().position(|p| p.id == me_id) {
-                let me = &players[me_index];
-                let input = self.bots[i].generate_input(me, players, projectiles, map, dt);
-                all_inputs.insert(me_id, input);
-            }
-        }
-
-        for player in &mut self.players {
+        for tank in &mut self.tanks {
             let default_input = InputPayload {
                 move_axis: Vec2::ZERO,
-                aim_pos: player.position,
+                aim_pos: tank.position,
                 shoot: false,
             };
 
             // Get input or use default (idle)
-            let input = all_inputs.get(&player.id).unwrap_or(&default_input);
+            let input = inputs.get(&tank.id).unwrap_or(&default_input);
 
-            apply_player_physics(player, input, &self.map, dt);
+            apply_player_physics(tank, input, &self.map, dt);
 
             // We use the engine's internal counter to assign IDs to new projectiles.
-            if let Some(proj) = handle_shooting(player, input, dt, self.projectile_id_counter) {
+            if let Some(proj) = handle_shooting(tank, input, dt, self.projectile_id_counter) {
                 self.projectiles.push(proj);
                 self.projectile_id_counter += 1;
             }
         }
 
         // Resolves collisions between players (prevent overlapping)
-        resolve_player_collisions(&mut self.players);
+        resolve_player_collisions(&mut self.tanks);
 
         // Process Projectiles (Move & Collide with walls)
         update_projectiles(&mut self.projectiles, &self.map, dt);
 
         // Resolve Combat (Projectiles hitting Players)
         // This function modifies health, removes dead players/bullets, and returns KillEvents.
-        let kills = resolve_combat(&mut self.players, &mut self.projectiles);
-        let winner = check_round_winner(&self.players);
+        let kills = resolve_combat(&mut self.tanks, &mut self.projectiles);
+        let winner = check_round_winner(&self.tanks);
 
         GameTickResult { kills, winner }
     }
 
-    pub fn move_players_to_spawnpoints(&mut self, current_player_ids: &[PlayerId]) {
+    pub fn prepare_new_round(&mut self) {
+        // Clear transient round state.
+        self.tanks.clear();
+        self.projectiles.clear();
+        self.projectile_id_counter = 0;
+
+        // Clear bots and recreate them to fill spawnpoints each round.
         self.bots.clear();
 
-        self.players.retain(|p| current_player_ids.contains(&p.id));
-
-        let spawn_points = self.map.spawn_points.clone();
-
-        let mut used_indices = Vec::new();
-
-        for (i, player) in self.players.iter_mut().enumerate() {
-            if i < spawn_points.len() {
-                let (team, pos) = spawn_points[i];
-                player.position = pos;
-                player.team = team;
-                player.velocity = Vec2::ZERO;
-                player.health = 100.0;
-                used_indices.push(i);
+        // Split spawnpoints by team; order within a team doesn't matter.
+        let mut red_spawns: Vec<Vec2> = Vec::new();
+        let mut blue_spawns: Vec<Vec2> = Vec::new();
+        for (team, pos) in &self.map.spawn_points {
+            match team {
+                Team::Red => red_spawns.push(*pos),
+                Team::Blue => blue_spawns.push(*pos),
             }
         }
 
-        for (i, (team, pos)) in spawn_points.iter().enumerate() {
-            if !used_indices.contains(&i) {
-                let bot_id = self.next_player_id;
-                self.next_player_id += 1;
-
-                let nickname = format!("Bot {}", bot_id);
-                let player = Player::new(bot_id, nickname, *team, *pos);
-                self.players.push(player);
-
-                let bot = BotAgent::new(bot_id, BotDifficulty::Hunter, bot_id as u64);
-                self.bots.push(bot);
+        // Spawn humans first (team fixed on join).
+        for human in &self.humans {
+            let id = human.id;
+            let team = human.team;
+            let nickname = human.nickname.clone();
+            let pos = match team {
+                Team::Red => red_spawns.pop(),
+                Team::Blue => blue_spawns.pop(),
             }
+            .or_else(|| self.random_free_position())
+            .unwrap_or(Vec2::new(self.map.width * 0.5, self.map.height * 0.5));
+
+            self.tanks.push(Tank::new(id, nickname, team, pos));
         }
+
+        // Fill remaining spawnpoints with bots.
+        for pos in red_spawns {
+            self.spawn_bot(Team::Red, pos);
+        }
+        for pos in blue_spawns {
+            self.spawn_bot(Team::Blue, pos);
+        }
+    }
+
+    fn spawn_bot(&mut self, team: Team, pos: Vec2) {
+        let bot_id = self.next_player_id;
+        self.next_player_id += 1;
+
+        let nickname = format!("Bot {}", bot_id);
+        let bot = BotAgent::new(bot_id, BotDifficulty::Hunter, bot_id as u64);
+        self.bots.push(bot);
+        self.tanks.push(Tank::new(bot_id, nickname, team, pos));
     }
 
     /// Helper to inject a player (e.g. on spawn)
     pub fn add_player(&mut self, nickname: String) -> Result<PlayerId, String> {
-        if self.players.len() >= self.map.spawn_points.len() {
+        if self.humans.len() >= self.map.spawn_points.len() {
             return Err("Player limit reached".to_string());
         }
 
@@ -141,14 +182,16 @@ impl GameEngine {
         let position = self
             .random_free_position()
             .ok_or("Failed to find a free position")?;
-        let team = if self.players.len().is_multiple_of(2) {
+        let team = if self.humans.len().is_multiple_of(2) {
             Team::Blue
         } else {
             Team::Red
         };
 
-        let player = Player::new(id, nickname, team, position);
-        self.players.push(player);
+        self.humans.push(HumanInfo::new(id, nickname.clone(), team));
+
+        let tank = Tank::new(id, nickname, team, position);
+        self.tanks.push(tank);
         Ok(id)
     }
 
@@ -168,7 +211,7 @@ impl GameEngine {
             let candidate = Vec2::new(x, y);
 
             let occupied = self
-                .players
+                .tanks
                 .iter()
                 .any(|p| p.position.distance_squared(candidate) < min_dist_sq);
             if !occupied {
@@ -180,6 +223,25 @@ impl GameEngine {
     }
 
     pub fn remove_player(&mut self, player_id: PlayerId) {
-        self.players.retain(|player| player.id != player_id);
+        self.humans.retain(|h| h.id != player_id);
+        self.bots.retain(|b| b.id != player_id);
+        self.tanks.retain(|tank| tank.id != player_id);
+        self.projectiles.retain(|proj| proj.owner_id != player_id);
+    }
+
+    fn inject_bot_inputs(&mut self, inputs: &mut HashMap<PlayerId, InputPayload>, dt: f32) {
+        // Snapshot borrows used during input generation.
+        let tanks = &self.tanks;
+        let projectiles = &self.projectiles;
+        let map = &self.map;
+
+        for bot in &mut self.bots {
+            let me_id = bot.id;
+            if let Some(me_index) = tanks.iter().position(|t| t.id == me_id) {
+                let me = &tanks[me_index];
+                let input = bot.generate_input(me, tanks, projectiles, map, dt);
+                inputs.insert(me_id, input);
+            }
+        }
     }
 }
