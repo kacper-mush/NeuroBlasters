@@ -105,11 +105,14 @@ impl Server {
             servername.push_str(":8080");
         }
 
-        let server_addr = servername
+        let addrs: Vec<std::net::SocketAddr> = servername
             .to_socket_addrs()
-            .ok()
-            .and_then(|mut iter| iter.next())
-            .ok_or("Server not found.".to_string())?;
+            .map_err(|_| "Server not found.".to_string())?
+            .collect();
+        let mut addrs = addrs;
+        // Prefer IPv4 when both families are available (common for "localhost" resolving to ::1 first on Linux).
+        addrs.sort_by_key(|a| if a.is_ipv4() { 0 } else { 1 });
+        let server_addr = addrs.first().copied().ok_or("Server not found.".to_string())?;
 
         let connection_config = ConnectionConfig::default();
 
