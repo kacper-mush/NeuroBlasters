@@ -90,7 +90,7 @@ pub struct EngineSnapshot {
 pub enum GameState {
     Waiting,
     Countdown(u64),
-    Battle,
+    Battle(u64),
     Results(Team),
 }
 
