@@ -78,8 +78,9 @@ pub enum MapName {
 pub struct GameSnapshot {
     pub players: Vec<Player>,
     pub projectiles: Vec<Projectile>,
-    pub map: MapName,
     pub state: GameState,
+    pub game_master: ClientId,
+    pub round_number: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
@@ -101,4 +102,5 @@ pub struct InitialGameInfo {
     pub player_id: PlayerId,
     pub num_rounds: u8,
     pub map_name: MapName,
+    pub game_master: ClientId,
 }
