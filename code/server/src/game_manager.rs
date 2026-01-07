@@ -91,6 +91,7 @@ impl GameManager {
             player_id,
             num_rounds: rounds,
             map_name: map,
+            game_master,
         }))
     }
 

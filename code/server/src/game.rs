@@ -14,20 +14,22 @@ pub struct Game {
     game_master: ClientId,
     engine: GameEngine,
     inputs: HashMap<PlayerId, InputPayload>,
-    rounds_left: u8,
+    curr_round: u8,
+    total_rounds: u8,
     map: MapName,
     pub outgoing_events: Vec<GameEvent>,
 }
 
 impl Game {
-    pub fn new(game_master: ClientId, map: MapName, rounds_left: u8) -> Self {
+    pub fn new(game_master: ClientId, map: MapName, rounds: u8) -> Self {
         Self {
             state: GameState::Waiting,
             players: HashMap::new(),
             game_master,
             engine: GameEngine::new(MapDefinition::load_name(map)),
             inputs: HashMap::new(),
-            rounds_left,
+            curr_round: 1,
+            total_rounds: rounds,
             map,
             outgoing_events: Vec::new(),
         }
@@ -37,17 +39,20 @@ impl Game {
         GameSnapshot {
             players: self.engine.players.clone(),
             projectiles: self.engine.projectiles.clone(),
-            map: self.map,
             state: self.game_state_info(),
+            game_master: self.game_master,
+            round_number: self.curr_round,
         }
     }
 
     pub fn initial_game_info(&self, game_code: GameCode, player_id: PlayerId) -> InitialGameInfo {
+        // TODO: fix unwrap
         InitialGameInfo {
             game_code,
             player_id,
-            num_rounds: self.rounds_left,
+            num_rounds: self.total_rounds,
             map_name: self.map,
+            game_master: self.game_master,
         }
     }
 
@@ -143,8 +148,8 @@ impl Game {
 
                 if let Some(winner) = result.winner {
                     self.outgoing_events.push(GameEvent::RoundEnded(winner));
-                    self.rounds_left -= 1;
-                    if self.rounds_left > 0 {
+                    self.curr_round += 1;
+                    if self.curr_round <= self.total_rounds {
                         self.state = GameState::Countdown(Countdown::default());
                     }
                 }
