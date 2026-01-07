@@ -102,12 +102,7 @@ pub fn is_position_safe(pos: Vec2, radius: f32, map: &MapDefinition) -> bool {
 
 // --- Main Physics Logic ---
 
-pub fn apply_player_physics(
-    player: &mut Tank,
-    input: &InputPayload,
-    map: &MapDefinition,
-    dt: f32,
-) {
+pub fn apply_player_physics(player: &mut Tank, input: &InputPayload, map: &MapDefinition, dt: f32) {
     // 1. Movement
     // Normalize the input vector to ensure diagonal movement isn't faster (length 1.0).
     if input.move_axis.length_squared() > 0.0 {

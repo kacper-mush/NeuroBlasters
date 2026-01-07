@@ -145,7 +145,7 @@ impl View for Game {
             .expect("Game context must be present.");
 
         if let Some(update) = ctx.server.game_update() {
-            game_ctx.game_engine.players = update.snapshot.players;
+            game_ctx.game_engine.tanks = update.snapshot.tanks;
             game_ctx.game_engine.projectiles = update.snapshot.projectiles;
             game_ctx.game_state = update.snapshot.state;
         }
@@ -214,8 +214,7 @@ impl View for Game {
                 .as_mut()
                 .expect("Game context must be present.")
                 .game_engine;
-            game_engine.players = update.snapshot.players;
-            let game_engine = self.game_engine.as_mut().unwrap();
+
             game_engine.tanks = update.snapshot.tanks;
             game_engine.projectiles = update.snapshot.projectiles;
         }
