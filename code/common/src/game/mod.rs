@@ -327,13 +327,13 @@ pub fn check_round_winner(players: &[Player]) -> Option<Team> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{RectWall, Team};
+    use crate::protocol::{PlayerId, RectWall, Team};
     use glam::Vec2;
     #[allow(deprecated)]
     use rand::rngs::mock::StepRng; // Or use a seeded StdRng
 
     // --- Helper to create dummy players ---
-    fn make_player(id: u64, team: Team, pos: Vec2) -> Player {
+    fn make_player(id: PlayerId, team: Team, pos: Vec2) -> Player {
         Player {
             id,
             team,
