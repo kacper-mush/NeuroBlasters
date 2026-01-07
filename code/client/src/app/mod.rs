@@ -1,4 +1,5 @@
 use crate::app::main_menu::MainMenu;
+use crate::app::popup::Popup;
 use crate::server::Server;
 use crate::ui::BACKGROUND_COLOR;
 use macroquad::prelude::*;
@@ -7,6 +8,7 @@ mod game;
 mod main_menu;
 mod options_menu;
 mod popup;
+mod request_view;
 mod room_creation;
 mod room_lobby;
 mod room_menu;
@@ -32,6 +34,7 @@ pub(crate) enum ViewId {
     WinnerScreen,
     Popup,
     RoomCreation,
+    RequestView,
 }
 
 pub(crate) enum Transition {
@@ -44,8 +47,8 @@ pub(crate) enum Transition {
     PopUntil(ViewId),
     /// like PopUntil, but also pushes a new screen on top of the target (i.e. an overlay popup)
     PopUntilAnd(ViewId, Box<dyn View>),
-    /// A state that was reliant on a server connection lost it
-    ConnectionLost,
+    /// A state that was reliant on a server connection lost it, exit with a reason
+    ConnectionLost(String),
 }
 
 pub(crate) trait View {
@@ -149,6 +152,7 @@ impl App {
                         .on_resume(&mut self.context, only_overlay);
                 }
                 Transition::PopUntilAnd(target_id, new_view) => {
+                    // TODO: perhaps we should call on_resume here sometimes
                     let _ = self.pop_until(target_id);
                     self.stack.push(new_view);
                     self.stack.last_mut().unwrap().on_start(&mut self.context);
@@ -163,14 +167,13 @@ impl App {
                     }
                 }
                 // For a connection lost transition, we want to return to the ServerConnectMenu
-                Transition::ConnectionLost => {
-                    let only_overlay = self.pop_until(ViewId::ServerConnectMenu);
+                Transition::ConnectionLost(err) => {
                     self.context.server.take();
 
-                    self.stack
-                        .last_mut()
-                        .unwrap()
-                        .on_resume(&mut self.context, only_overlay);
+                    let _ = self.pop_until(ViewId::ServerConnectMenu);
+                    self.stack.push(Box::new(Popup::new(err)));
+
+                    self.stack.last_mut().unwrap().on_start(&mut self.context);
                 }
                 Transition::None => {}
             }
