@@ -97,27 +97,23 @@ impl View for RequestView {
             return Transition::ConnectionLost(err.clone());
         }
 
-        // check server request response
-        // if present either success transition or display error
-        match ctx.server.take_request_response() {
-            None => {} // We are still waiting for a response
-            Some(resp) => {
-                return match resp {
-                    // Request was successful
-                    Ok(_) => match self.success_view.take() {
-                        // Our parent requested to go to another view on success
-                        Some(view) => Transition::PopAnd(view),
-                        // No custom view to go, maybe a custom transition?
-                        None => match self.success_transition.take() {
-                            Some(transition) => transition,
-                            // No view or transition, so we just pop ourselves
-                            None => Transition::Pop,
-                        },
+        // Check for server request response
+        if let Some(resp) = ctx.server.take_request_response() {
+            return match resp {
+                // Request was successful
+                Ok(_) => match self.success_view.take() {
+                    // Our parent requested to go to another view on success
+                    Some(view) => Transition::PopAnd(view),
+                    // No custom view to go, maybe a custom transition?
+                    None => match self.success_transition.take() {
+                        Some(transition) => transition,
+                        // No view or transition, so we just pop ourselves
+                        None => Transition::Pop,
                     },
-                    // Request failed: show the reason why
-                    Err(reason) => Transition::PopAnd(Box::new(Popup::new(reason))),
-                };
-            }
+                },
+                // Request failed: show the reason why
+                Err(reason) => Transition::PopAnd(Box::new(Popup::new(reason))),
+            };
         }
 
         if self.abort_clicked {
@@ -132,6 +128,6 @@ impl View for RequestView {
     }
 
     fn get_id(&self) -> ViewId {
-        ViewId::Popup
+        ViewId::RequestView
     }
 }
