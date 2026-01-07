@@ -1,5 +1,5 @@
 use super::{
-    apply_player_physics, check_round_winner, handle_shooting, resolve_combat,
+    DamageEvent, apply_player_physics, check_round_winner, handle_shooting, resolve_combat,
     resolve_player_collisions, update_projectiles,
 };
 use crate::net::protocol::{
@@ -18,6 +18,7 @@ pub struct GameEngine {
 
 pub struct GameTickResult {
     pub kills: Vec<KillEvent>,
+    pub damage: Vec<DamageEvent>,
     pub winner: Option<Team>,
 }
 
@@ -65,10 +66,14 @@ impl GameEngine {
 
         // Resolve Combat (Projectiles hitting Players)
         // This function modifies health, removes dead players/bullets, and returns KillEvents.
-        let kills = resolve_combat(&mut self.players, &mut self.projectiles);
+        let (kills, damage) = resolve_combat(&mut self.players, &mut self.projectiles);
         let winner = check_round_winner(&self.players);
 
-        GameTickResult { kills, winner }
+        GameTickResult {
+            kills,
+            damage,
+            winner,
+        }
     }
 
     /// Helper to inject a player (e.g. on spawn)
