@@ -45,7 +45,6 @@ impl Game {
     }
 
     pub fn initial_game_info(&self, game_code: GameCode, player_id: PlayerId) -> InitialGameInfo {
-        // TODO: fix unwrap
         InitialGameInfo {
             game_code,
             player_id,
