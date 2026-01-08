@@ -1,5 +1,5 @@
-use crate::app::game_view::GameView;
 use crate::app::request_view::RequestView;
+use crate::app::server_lobby::ServerLobby;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
 use crate::ui::{
@@ -139,10 +139,9 @@ impl View for GameCreation {
                         map: self.current_map,
                         rounds: ROUND_NUMBER_CHOICES[self.round_index],
                     });
-                    let success_view = Some(Box::new(GameView::new()) as Box<dyn View>);
-                    Transition::Push(Box::new(RequestView::new(
+                    Transition::Push(Box::new(RequestView::new_action(
                         "Creating game...".into(),
-                        success_view,
+                        ServerLobby::get_game_completion_action(),
                     )))
                 }
                 GameCreationButtons::Back => Transition::Pop,

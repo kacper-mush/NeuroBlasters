@@ -114,7 +114,7 @@ impl View for InGameMenu {
                 MenuButton::Quit => {
                     ctx.server.send_client_message(ClientMessage::LeaveGame);
                     let success_transition = Transition::PopUntil(ViewId::ServerLobby);
-                    return Transition::Push(Box::new(RequestView::new_with_transition(
+                    return Transition::Push(Box::new(RequestView::new_transition(
                         "Exiting game...".into(),
                         success_transition,
                     )));
@@ -123,7 +123,7 @@ impl View for InGameMenu {
                     ctx.server
                         .send_client_message(ClientMessage::StartCountdown);
                     let success_transition = Transition::PopUntil(ViewId::GameView);
-                    return Transition::Push(Box::new(RequestView::new_with_transition(
+                    return Transition::Push(Box::new(RequestView::new_transition(
                         "Starting game...".into(),
                         success_transition,
                     )));

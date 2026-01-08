@@ -2,11 +2,14 @@ use crate::countdown::Countdown;
 use common::game::engine::GameEngine;
 use common::protocol::{
     ClientId, GameCode, GameEvent, GameSnapshot, GameState as GameStateInfo, InitialGameInfo,
-    InputPayload, MapDefinition, MapName, PlayerId,
+    InputPayload, MapDefinition, MapName, PlayerId, Team,
 };
+use rand::Rng;
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::warn;
+
+const ROUND_DURATION: Duration = Duration::from_secs(100);
 
 pub struct Game {
     state: GameState,
@@ -16,6 +19,8 @@ pub struct Game {
     inputs: HashMap<PlayerId, InputPayload>,
     curr_round: u8,
     total_rounds: u8,
+    blue_wins: u8,
+    red_wins: u8,
     map: MapName,
     pub outgoing_events: Vec<GameEvent>,
 }
@@ -30,6 +35,8 @@ impl Game {
             inputs: HashMap::new(),
             curr_round: 1,
             total_rounds: rounds,
+            blue_wins: 0,
+            red_wins: 0,
             map,
             outgoing_events: Vec::new(),
         }
@@ -58,8 +65,16 @@ impl Game {
         match &self.state {
             GameState::Waiting => GameStateInfo::Waiting,
             GameState::Countdown(countdown) => GameStateInfo::Countdown(countdown.seconds_left()),
-            GameState::Battle => GameStateInfo::Battle,
-            GameState::Results(winner) => GameStateInfo::Results(*winner),
+            GameState::Battle(countdown) => GameStateInfo::Battle(countdown.seconds_left()),
+            GameState::Results {
+                winner,
+                blue_score,
+                red_score,
+            } => GameStateInfo::Results {
+                winner: *winner,
+                blue_score: *blue_score,
+                red_score: *red_score,
+            },
         }
     }
 
@@ -87,10 +102,6 @@ impl Game {
     }
 
     pub fn start_countdown(&mut self, client_id: ClientId) -> Result<(), StartCountdownError> {
-        if self.players.len() < 2 {
-            return Err(StartCountdownError::NotEnoughPlayers);
-        }
-
         if !matches!(self.state, GameState::Waiting) {
             return Err(StartCountdownError::NotInWaitingState);
         }
@@ -109,12 +120,14 @@ impl Game {
             return;
         };
         let input = match self.state {
-            GameState::Battle => input,
+            GameState::Battle(_) => input,
             // Countdown/Waiting/Results: movement/aim is allowed, shooting is not.
-            GameState::Waiting | GameState::Countdown(_) | GameState::Results(_) => InputPayload {
-                shoot: false,
-                ..input
-            },
+            GameState::Waiting | GameState::Countdown(_) | GameState::Results { .. } => {
+                InputPayload {
+                    shoot: false,
+                    ..input
+                }
+            }
         };
         self.inputs.insert(*player_id, input);
     }
@@ -126,37 +139,88 @@ impl Game {
         match &mut self.state {
             GameState::Countdown(countdown) => {
                 if countdown.tick(Duration::from_secs_f32(dt)) {
-                    self.state = GameState::Battle;
+                    self.state = GameState::Battle(Countdown::new(ROUND_DURATION));
                     self.engine.prepare_new_round();
                 }
             }
-            GameState::Battle => {
-                let mut kill_events = result
-                    .kills
-                    .iter()
-                    .map(|kill_event| GameEvent::Kill(kill_event.clone()))
-                    .collect();
+            GameState::Battle(countdown) => {
+                let mut round_ended = false;
+                let mut winner = None;
 
-                self.outgoing_events.append(&mut kill_events);
+                if countdown.tick(Duration::from_secs_f32(dt)) {
+                    winner = Some(self.resolve_winner_by_hp());
+                    round_ended = true;
+                }
 
-                if let Some(winner) = result.winner {
+                if !round_ended {
+                    let mut kill_events = result
+                        .kills
+                        .iter()
+                        .map(|kill_event| GameEvent::Kill(kill_event.clone()))
+                        .collect();
+
+                    self.outgoing_events.append(&mut kill_events);
+
+                    if let Some(w) = result.winner {
+                        winner = Some(w);
+                    }
+                }
+
+                if let Some(winner) = winner {
+                    // Increment the winning team's score
+                    match winner {
+                        common::protocol::Team::Blue => self.blue_wins += 1,
+                        common::protocol::Team::Red => self.red_wins += 1,
+                    }
+
                     self.outgoing_events.push(GameEvent::RoundEnded(winner));
                     self.curr_round += 1;
                     if self.curr_round <= self.total_rounds {
                         self.state = GameState::Countdown(Countdown::default());
                     } else {
-                        // End of match: enter Results. Players can still move, but cannot shoot.
-                        self.state = GameState::Results(winner);
+                        // End of match: determine overall winner based on best-of-N
+                        let overall_winner = if self.blue_wins > self.red_wins {
+                            common::protocol::Team::Blue
+                        } else {
+                            common::protocol::Team::Red
+                        };
+
+                        self.state = GameState::Results {
+                            winner: overall_winner,
+                            blue_score: self.blue_wins,
+                            red_score: self.red_wins,
+                        };
                         // Clear any remaining projectiles so no post-match kills happen.
                         self.engine.clear_projectiles();
                     }
                 }
             }
             GameState::Waiting => {}
-            GameState::Results(_winner) => {
+            GameState::Results { .. } => {
                 // Stay in Results; GameEngine still ticks (movement/aim allowed),
                 // but inputs are already clamped to shoot=false in handle_player_input.
             }
+        }
+    }
+
+    fn resolve_winner_by_hp(&self) -> Team {
+        let mut red_hp = 0.0;
+        let mut blue_hp = 0.0;
+        for t in self.engine.tanks() {
+            match t.player_info.team {
+                Team::Red => red_hp += t.health,
+                Team::Blue => blue_hp += t.health,
+            }
+        }
+
+        if red_hp > blue_hp {
+            Team::Red
+        } else if blue_hp > red_hp {
+            Team::Blue
+        } else if rand::rng().random_bool(0.5) {
+            Team::Red
+        } else {
+            Team::Blue
         }
     }
 }
@@ -164,7 +228,6 @@ impl Game {
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
 pub enum StartCountdownError {
-    NotEnoughPlayers,
     NotTheGameMaster,
     NotInWaitingState,
 }
@@ -172,8 +235,12 @@ pub enum StartCountdownError {
 enum GameState {
     Waiting,
     Countdown(Countdown),
-    Battle,
-    Results(common::protocol::Team),
+    Battle(Countdown),
+    Results {
+        winner: common::protocol::Team,
+        blue_score: u8,
+        red_score: u8,
+    },
 }
 
 #[cfg(test)]
@@ -191,6 +258,10 @@ mod tests {
             aim_pos: to,
             shoot: true,
         }
+    }
+
+    fn make_player(id: u16, nickname: &str, team: Team) -> Tank {
+        Tank::new(PlayerInfo::new(id, nickname.to_string(), team), Vec2::ZERO)
     }
 
     #[test]
@@ -213,14 +284,12 @@ mod tests {
     }
 
     #[test]
-    fn start_countdown_requires_two_players_and_master() {
+    fn start_countdown_requires_master() {
         let master: ClientId = 1;
         let other: ClientId = 2;
         let mut g = Game::new(master, MapName::Basic, 3);
 
         g.add_player(master, "p1".to_string()).unwrap();
-        assert!(g.start_countdown(master).is_err(), "needs 2 players");
-
         g.add_player(other, "p2".to_string()).unwrap();
         assert!(g.start_countdown(other).is_err(), "only master can start");
 
@@ -238,9 +307,40 @@ mod tests {
         g.add_player(other, "p2".to_string()).unwrap();
         g.start_countdown(master).unwrap();
 
-        // Default countdown is 5s, so 6s should finish it in one tick.
         g.tick(6.0);
-        assert!(matches!(g.game_state_info(), GameStateInfo::Battle));
+        assert!(matches!(g.game_state_info(), GameStateInfo::Battle(_)));
+    }
+
+    #[test]
+    fn battle_timeout_declares_winner_by_health() {
+        let master: ClientId = 1;
+        let other: ClientId = 2;
+        let mut g = Game::new(master, MapName::Basic, 1);
+        g.add_player(master, "p1".to_string()).unwrap();
+        g.add_player(other, "p2".to_string()).unwrap(); // Auto Blue
+
+        g.state = GameState::Battle(Countdown::new(Duration::from_secs(1)));
+        g.engine.apply_snapshot(EngineSnapshot {
+            tanks: vec![
+                make_player(0, "p1", common::protocol::Team::Red), // 100 HP
+                {
+                    let mut p = make_player(1, "p2", common::protocol::Team::Blue);
+                    p.health = 50.0;
+                    p
+                },
+            ],
+            projectiles: Vec::new(),
+        });
+
+        // Tick 1.0s to finish countdown
+        g.tick(1.0);
+
+        // Should see RoundEnded with Red winner
+        assert!(
+            g.outgoing_events
+                .iter()
+                .any(|e| matches!(e, GameEvent::RoundEnded(common::protocol::Team::Red)))
+        );
     }
 
     #[test]
@@ -271,7 +371,7 @@ mod tests {
 
         // Transition to battle.
         g.tick(6.0);
-        assert!(matches!(g.game_state_info(), GameStateInfo::Battle));
+        assert!(matches!(g.game_state_info(), GameStateInfo::Battle(_)));
 
         let my_pos = g
             .snapshot()
@@ -345,7 +445,7 @@ mod tests {
         ];
 
         // Force battle state and inject players/projectile so resolve_combat produces a kill.
-        g.state = GameState::Battle;
+        g.state = GameState::Battle(Countdown::new(ROUND_DURATION));
         g.engine.apply_snapshot(EngineSnapshot {
             tanks: vec![Tank::new(infos[0].clone(), Vec2::ZERO), {
                 let mut p = Tank::new(infos[1].clone(), Vec2::new(200.0, 200.0));
@@ -382,7 +482,7 @@ mod tests {
         let mut g = Game::new(master, MapName::Basic, 2);
 
         // Force battle state and an immediate winner by having only one team alive.
-        g.state = GameState::Battle;
+        g.state = GameState::Battle(Countdown::new(ROUND_DURATION));
         g.engine.apply_snapshot(EngineSnapshot {
             tanks: vec![Tank::new(
                 PlayerInfo::new(0, "p1".into(), common::protocol::Team::Red),
@@ -406,7 +506,7 @@ mod tests {
         let master: ClientId = 1;
         let mut g = Game::new(master, MapName::Basic, 1);
 
-        g.state = GameState::Battle;
+        g.state = GameState::Battle(Countdown::new(ROUND_DURATION));
         g.engine.apply_snapshot(EngineSnapshot {
             tanks: vec![Tank::new(
                 PlayerInfo::new(0, "p1".into(), common::protocol::Team::Red),
@@ -422,7 +522,7 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, GameEvent::RoundEnded(_)))
         );
-        assert!(matches!(g.game_state_info(), GameStateInfo::Results(_)));
+        assert!(matches!(g.game_state_info(), GameStateInfo::Results { .. }));
 
         // Winner remains true on subsequent ticks; this must NOT underflow rounds_left or emit more RoundEnded.
         g.outgoing_events.clear();
@@ -432,5 +532,74 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, GameEvent::RoundEnded(_)))
         );
+    }
+
+    #[test]
+    fn best_of_n_tracks_scores_and_determines_correct_winner() {
+        let master: ClientId = 1;
+        let mut g = Game::new(master, MapName::Basic, 3);
+
+        // Force battle state
+        g.state = GameState::Battle(Countdown::default());
+
+        // Round 1: Red wins
+        g.engine.apply_snapshot(EngineSnapshot {
+            tanks: vec![Tank::new(
+                PlayerInfo::new(0, "red_player".into(), common::protocol::Team::Red),
+                Vec2::ZERO,
+            )],
+            projectiles: Vec::new(),
+        });
+        g.tick(0.0);
+        assert_eq!(g.blue_wins, 0);
+        assert_eq!(g.red_wins, 1);
+        assert!(matches!(g.game_state_info(), GameStateInfo::Countdown(_)));
+
+        // Transition to battle for round 2
+        g.tick(6.0);
+        assert!(matches!(g.game_state_info(), GameStateInfo::Battle(_)));
+
+        // Round 2: Blue wins
+        g.engine.apply_snapshot(EngineSnapshot {
+            tanks: vec![Tank::new(
+                PlayerInfo::new(1, "blue_player".into(), common::protocol::Team::Blue),
+                Vec2::ZERO,
+            )],
+            projectiles: Vec::new(),
+        });
+        g.tick(0.0);
+        assert_eq!(g.blue_wins, 1);
+        assert_eq!(g.red_wins, 1);
+        assert!(matches!(g.game_state_info(), GameStateInfo::Countdown(_)));
+
+        // Transition to battle for round 3
+        g.tick(6.0);
+        assert!(matches!(g.game_state_info(), GameStateInfo::Battle(_)));
+
+        // Round 3: Red wins (Red wins 2-1)
+        g.engine.apply_snapshot(EngineSnapshot {
+            tanks: vec![Tank::new(
+                PlayerInfo::new(0, "red_player".into(), common::protocol::Team::Red),
+                Vec2::ZERO,
+            )],
+            projectiles: Vec::new(),
+        });
+        g.tick(0.0);
+        assert_eq!(g.blue_wins, 1);
+        assert_eq!(g.red_wins, 2);
+
+        // Verify final Results state has correct winner and scores
+        match g.game_state_info() {
+            GameStateInfo::Results {
+                winner,
+                blue_score,
+                red_score,
+            } => {
+                assert_eq!(winner, common::protocol::Team::Red);
+                assert_eq!(blue_score, 1);
+                assert_eq!(red_score, 2);
+            }
+            _ => panic!("Expected Results state"),
+        }
     }
 }

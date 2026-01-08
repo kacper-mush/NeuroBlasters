@@ -84,8 +84,8 @@ impl View for ServerConnectMenu {
                 ServerConnectButtons::Connect => {
                     ctx.server
                         .connect(self.servername_field.text(), self.username_field.text());
-                    let success_view = Some(Box::new(ServerLobby::new()) as Box<dyn View>);
-                    Transition::Push(Box::new(RequestView::new(
+                    let success_view = Box::new(ServerLobby::new()) as Box<dyn View>;
+                    Transition::Push(Box::new(RequestView::new_open_view(
                         "Connecting to server...".into(),
                         success_view,
                     )))

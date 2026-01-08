@@ -6,7 +6,7 @@ use tracing::{debug, info};
 use crate::game::{Game, StartCountdownError};
 use common::protocol::{
     ClientId, CreateGameResponse, GameCode, GameState, GameUpdate, InitialGameInfo, InputPayload,
-    JoinGameResponse, MapName, StartCountdownResponse,
+    JoinGameResponse, MapName,
 };
 
 pub struct GameManager {
@@ -146,7 +146,7 @@ impl GameManager {
         &mut self,
         game_code: &GameCode,
         client_id: ClientId,
-    ) -> Result<StartCountdownResponse, String> {
+    ) -> Result<(), String> {
         let Some(game) = self.games.get_mut(game_code) else {
             return Err("Game does not exist".to_string());
         };
@@ -154,11 +154,7 @@ impl GameManager {
         match game.start_countdown(client_id) {
             Ok(()) => {
                 info!(?game_code, %client_id, "Countdown started");
-                Ok(StartCountdownResponse::Ok)
-            }
-            Err(StartCountdownError::NotEnoughPlayers) => {
-                debug!(?game_code, %client_id, "Failed to start countdown: not enough players");
-                Ok(StartCountdownResponse::NotEnoughPlayers)
+                Ok(())
             }
             Err(StartCountdownError::NotTheGameMaster) => {
                 Err("Only the game master can start the countdown".to_string())
@@ -317,7 +313,7 @@ mod tests {
         assert!(matches!(join, JoinGameResponse::Ok(_)));
 
         let start = gm.start_countdown(&game_code, host);
-        assert!(matches!(start, Ok(StartCountdownResponse::Ok)));
+        assert!(matches!(start, Ok(())));
 
         // Second attempt should be rejected (no longer in lobby state).
         let start_again = gm.start_countdown(&game_code, host);

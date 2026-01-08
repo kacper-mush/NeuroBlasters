@@ -1,6 +1,7 @@
+use crate::app::game::Game;
 use crate::app::game_creation::GameCreation;
 use crate::app::game_view::GameView;
-use crate::app::request_view::RequestView;
+use crate::app::request_view::{RequestAction, RequestView};
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
 use crate::ui::{
@@ -30,6 +31,27 @@ impl ServerLobby {
             game_code_field: TextField::new_simple(10),
             message: None,
         }
+    }
+
+    pub fn get_game_completion_action() -> RequestAction {
+        Box::new(|ctx: &mut AppContext| {
+            let initial = ctx.server.initial_game_info();
+            let client_id = ctx.server.client_id();
+
+            // This means that somehow the request to create went through but we do not have
+            // the info that comes with it. Will not happen in practice.
+            if initial.is_none() || client_id.is_none() {
+                ctx.server.close();
+                return Transition::ConnectionLost("Unexpected server error.".into());
+            }
+            let initial = initial.unwrap();
+
+            let is_host = initial.game_master == client_id.unwrap();
+
+            ctx.game = Some(Game::new(initial, is_host));
+
+            Transition::PopAnd(Box::new(GameView::new()))
+        })
     }
 }
 
@@ -105,10 +127,10 @@ impl View for ServerLobby {
                     ctx.server.send_client_message(ClientMessage::JoinGame {
                         game_code: GameCode(self.game_code_field.text()),
                     });
-                    let success_view = Some(Box::new(GameView::new()) as Box<dyn View>);
-                    Transition::Push(Box::new(RequestView::new(
+
+                    Transition::Push(Box::new(RequestView::new_action(
                         "Joining game...".into(),
-                        success_view,
+                        ServerLobby::get_game_completion_action(),
                     )))
                 }
                 ServerLobbyButtons::Back => {

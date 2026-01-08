@@ -105,7 +105,7 @@ impl App {
 
     pub async fn run(&mut self) {
         while !self.stack.is_empty() {
-            self.context.server.tick(&mut self.context.game);
+            self.context.server.tick();
 
             // We only run update for the state on top of the stack
             let transition = self.stack.last_mut().unwrap().update(&mut self.context);
