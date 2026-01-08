@@ -119,8 +119,8 @@ impl ServerLogic {
                     (Some(ServerMessage::LeaveGameAck), Some(ClientState::Lobby))
                 }
                 ClientMessage::StartCountdown => {
-                    let response = self.game_manager.start_countdown(game_code, client_id)?;
-                    (Some(ServerMessage::StartCountdownResponse(response)), None)
+                    self.game_manager.start_countdown(game_code, client_id)?;
+                    (Some(ServerMessage::StartCountdownAck), None)
                 }
                 ClientMessage::GameInput(input) => {
                     self.game_manager
@@ -176,7 +176,7 @@ mod tests {
     use super::*;
     use common::protocol::{
         ClientMessage, CreateGameResponse, GameCode, HandshakeResponse, JoinGameResponse, MapName,
-        PlayerId, ServerMessage, StartCountdownResponse,
+        PlayerId, ServerMessage,
     };
     use glam::Vec2;
 
@@ -348,10 +348,7 @@ mod tests {
             .handle_message(host_id, ClientMessage::StartCountdown)
             .unwrap()
             .expect("start_countdown returns a response");
-        assert!(matches!(
-            resp,
-            ServerMessage::StartCountdownResponse(StartCountdownResponse::Ok)
-        ));
+        assert!(matches!(resp, ServerMessage::StartCountdownAck));
     }
 
     #[test]
