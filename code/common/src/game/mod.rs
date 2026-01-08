@@ -382,7 +382,7 @@ mod tests {
     fn test_combat_damage_and_kills() {
         // Setup: Player 2 is at (200, 200).
         // We spawn a bullet exactly at (200, 200) owned by Player 1.
-        let infos = vec![make_info(1, Team::Blue), make_info(2, Team::Red)];
+        let infos = [make_info(1, Team::Blue), make_info(2, Team::Red)];
 
         let mut players = vec![
             Tank::new(infos[0].clone(), Vec2::new(0.0, 0.0)),
@@ -421,7 +421,7 @@ mod tests {
     fn test_no_friendly_fire_logic_check() {
         // NOTE: Currently your code allows friendly fire.
         // This test ensures the code behaves as currently written (FF is ON).
-        let infos = vec![make_info(1, Team::Blue), make_info(2, Team::Blue)];
+        let infos = [make_info(1, Team::Blue), make_info(2, Team::Blue)];
 
         let mut players = vec![
             Tank::new(infos[0].clone(), Vec2::new(0.0, 0.0)),
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_win_condition() {
-        let infos = vec![make_info(1, Team::Blue), make_info(2, Team::Red)];
+        let infos = [make_info(1, Team::Blue), make_info(2, Team::Red)];
 
         // Scenario 1: Both teams alive
         let p1 = vec![

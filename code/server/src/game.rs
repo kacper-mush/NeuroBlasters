@@ -339,7 +339,7 @@ mod tests {
         let master: ClientId = 1;
         let mut g = Game::new(master, MapName::Basic, 3);
 
-        let infos = vec![
+        let infos = [
             PlayerInfo::new(0, "killer".into(), Team::Blue),
             PlayerInfo::new(1, "victim".into(), Team::Red),
         ];
