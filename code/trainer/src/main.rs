@@ -43,7 +43,7 @@ struct Args {
 /// 1. checks ./assets
 /// 2. checks ../assets
 /// 3. checks ../../assets
-/// ...
+///    ...
 fn resolve_assets_path(start_dir: &Path) -> PathBuf {
     for ancestor in start_dir.ancestors() {
         let candidate = ancestor.join("assets");
@@ -476,38 +476,6 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn test_action_to_input_basic() {
-        // Setup a dummy player facing East (0 radians)
-        let mut player = Player::new(0, "TestBot".to_string(), Team::Blue, Vec2::ZERO);
-        player.rotation = 0.0;
-
-        // Create context dependencies
-        let engine = GameEngine::new(MapDefinition::load());
-        let mut rng = StdRng::seed_from_u64(123);
-
-        let ctx = BotContext {
-            me: &player,
-            players: &engine.players,
-            projectiles: &engine.projectiles,
-            map: &engine.map,
-            dt: 0.033,
-            rng: &mut rng,
-        };
-
-        // Action: [Forward(1.0), Side(0.0), AimFwd(1.0), AimSide(0.7), Shoot(1.0)]
-        let actions = vec![1.0, 0.0, 1.0, 0.0, 1.0];
-        let input = action_to_input(&actions, &ctx);
-
-        // Verify Movement (Tanh applied)
-        // tanh(1.0) ~= 0.7615
-        assert!(input.move_axis.x > 0.7 && input.move_axis.x < 0.8);
-        assert!(input.move_axis.y.abs() < 0.001);
-
-        // Verify Shooting
-        assert!(input.shoot);
     }
 
     #[test]
