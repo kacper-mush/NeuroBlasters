@@ -105,4 +105,81 @@ impl SideFeed {
 
         self.events.retain(|el| el.is_active());
     }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_main_feed_set_and_get() {
+        let mut feed = MainFeed::new();
+        assert_eq!(feed.text, "");
+
+        feed.set("Hello World".to_string());
+        assert_eq!(feed.text, "Hello World");
+
+        feed.set("New Message".to_string());
+        assert_eq!(feed.text, "New Message");
+    }
+
+    #[test]
+    fn test_side_feed_add_events() {
+        let mut feed = SideFeed::new(5.0, 3);
+        assert_eq!(feed.len(), 0);
+
+        feed.add("Event 1".to_string());
+        assert_eq!(feed.len(), 1);
+
+        feed.add("Event 2".to_string());
+        feed.add("Event 3".to_string());
+        assert_eq!(feed.len(), 3);
+    }
+
+    #[test]
+    fn test_side_feed_can_exceed_max_display() {
+        // max_display only affects rendering, not storage
+        let mut feed = SideFeed::new(5.0, 2);
+
+        feed.add("Event 1".to_string());
+        feed.add("Event 2".to_string());
+        feed.add("Event 3".to_string());
+
+        // All events are stored, even if only 2 are displayed
+        assert_eq!(feed.len(), 3);
+    }
+
+    #[test]
+    fn test_feed_element_starts_active() {
+        let el = FeedElement::new("Test".to_string(), 5.0);
+        assert!(el.is_active());
+    }
+
+    #[test]
+    fn test_feed_element_expires_after_time() {
+        let mut el = FeedElement::new("Test".to_string(), 1.0);
+
+        // First update sets the start time
+        el.update(0.0);
+        assert!(el.is_active());
+
+        // Still active before expiry
+        el.update(0.5);
+        assert!(el.is_active());
+
+        // Expired after active_time has passed
+        el.update(1.5);
+        assert!(!el.is_active());
+    }
+
+    #[test]
+    fn test_feed_element_text_preserved() {
+        let el = FeedElement::new("My Message".to_string(), 5.0);
+        assert_eq!(el.text, "My Message");
+    }
 }
