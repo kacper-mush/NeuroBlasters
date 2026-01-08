@@ -164,14 +164,12 @@ async fn main() {
                         Some(Team::Blue)
                     } else if red_alive > blue_alive {
                         Some(Team::Red)
+                    } else if blue_kills > red_kills {
+                        Some(Team::Blue)
+                    } else if red_kills > blue_kills {
+                        Some(Team::Red)
                     } else {
-                        if blue_kills > red_kills {
-                            Some(Team::Blue)
-                        } else if red_kills > blue_kills {
-                            Some(Team::Red)
-                        } else {
-                            None
-                        }
+                        None
                     };
 
                     if blue_kills > 0 || red_kills > 0 {
@@ -250,7 +248,7 @@ async fn main() {
         let temp_base_path = models_dir.join(&temp_name);
         let temp_base_str = temp_base_path.to_str().expect("Invalid path string");
 
-        if let Ok(_) = population[0].clone().save_file(temp_base_str, &recorder) {
+        if population[0].clone().save_file(temp_base_str, &recorder).is_ok() {
             // Rename overwrites atomically on POSIX, and usually works on Windows if target exists.
             let _ = std::fs::rename(temp_file_path, final_file_path);
         }

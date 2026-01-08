@@ -233,7 +233,7 @@ impl TrainingMenu {
                 scale(player.radius) * 0.5,
                 BLACK,
             );
-            
+
             let aim_dir = Vec2::new(player.rotation.cos(), player.rotation.sin());
             draw_line(
                 transform_x(player.position.x),
