@@ -1,5 +1,6 @@
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::ui;
+use crate::ui::theme::{DARK_BG, NEON_CYAN, NEON_PINK, WALL_COLOR, WALL_OUTLINE};
 use crate::ui::{BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_HEIGHT, CANONICAL_SCREEN_WIDTH};
 use ::rand::SeedableRng;
 use ::rand::rngs::StdRng;
@@ -178,7 +179,7 @@ impl TrainingMenu {
     }
 
     fn draw_game(game_engine: &GameEngine) {
-        clear_background(LIGHTGRAY);
+        clear_background(DARK_BG);
         let (scaling, x_offset, y_offset) = Self::calc_transform(game_engine);
         let transform_x = |x: f32| x * scaling + x_offset;
         let transform_y = |y: f32| y * scaling + y_offset;
@@ -190,25 +191,49 @@ impl TrainingMenu {
                 transform_y(wall.min.y),
                 scale(wall.max.x - wall.min.x),
                 scale(wall.max.y - wall.min.y),
-                BLACK,
+                WALL_COLOR,
+            );
+            draw_rectangle_lines(
+                transform_x(wall.min.x),
+                transform_y(wall.min.y),
+                scale(wall.max.x - wall.min.x),
+                scale(wall.max.y - wall.min.y),
+                2.0,
+                WALL_OUTLINE,
             );
         }
 
         for player in &game_engine.tanks {
-            let color = if player.player_info.team == Team::Blue {
-                BLUE
+            let (main_color, glow_color) = if player.player_info.team == Team::Blue {
+                (NEON_CYAN, Color::new(0.0, 1.0, 1.0, 0.2))
             } else {
-                RED
+                (NEON_PINK, Color::new(1.0, 0.0, 1.0, 0.2))
             };
             if player.health <= 0.0 {
                 continue;
             }
+            // Glow
+            draw_circle(
+                transform_x(player.position.x),
+                transform_y(player.position.y),
+                scale(player.radius) * 1.5,
+                glow_color,
+            );
+            // Main Body
             draw_circle(
                 transform_x(player.position.x),
                 transform_y(player.position.y),
                 scale(player.radius),
-                color,
+                main_color,
             );
+            // Inner Core
+            draw_circle(
+                transform_x(player.position.x),
+                transform_y(player.position.y),
+                scale(player.radius) * 0.5,
+                BLACK,
+            );
+            
             let aim_dir = Vec2::new(player.rotation.cos(), player.rotation.sin());
             draw_line(
                 transform_x(player.position.x),
