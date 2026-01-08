@@ -6,8 +6,8 @@ use common::{
 use crate::{
     server::Server,
     ui::{
-        CANONICAL_SCREEN_MID_X, Layout, TEXT_MID, TEXT_SMALL, Text, TextHorizontalPositioning,
-        TextVerticalPositioning, calc_transform, default_text_params,
+        CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_MID, TEXT_SMALL, Text,
+        TextHorizontalPositioning, TextVerticalPositioning, calc_transform, default_text_params,
     },
 };
 use macroquad::prelude::*;
@@ -186,7 +186,7 @@ impl Game {
             GameState::Countdown(count) => {
                 format!("Round {} starting in {}...", self.current_round, count)
             }
-            GameState::Battle => String::new(),
+            GameState::Battle(_) => String::new(),
             GameState::Results(winner) => format!("Team {:?} won!", winner),
         };
         self.main_feed.set(string);
@@ -334,6 +334,14 @@ impl Game {
         }
 
         Text::new_scaled(TEXT_SMALL).draw(&get_fps().to_string(), 10., 10.);
+
+        if let GameState::Battle(seconds_left) = self.game_state {
+            Text::new_scaled(TEXT_LARGE).draw(
+                &format!("Time: {}", seconds_left),
+                CANONICAL_SCREEN_MID_X,
+                50.0,
+            );
+        }
 
         self.main_feed.draw();
         self.side_feed.draw();
