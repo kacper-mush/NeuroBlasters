@@ -78,6 +78,10 @@ impl ServerLogic {
         let client = self.clients.get_mut(&client_id).ok_or("Unknown sender")?;
 
         let (response, new_state) = match (&client.state, message) {
+            // Clients may still send a final input packet while transitioning out of a game (e.g.
+            // right after LeaveGame). In lobby, ignore inputs instead of erroring.
+            (ClientState::Lobby, ClientMessage::GameInput(_)) => (None, None),
+
             (ClientState::Lobby, ClientMessage::CreateGame { map, rounds }) => {
                 let response = self.game_manager.create_game(
                     client_id,
@@ -400,6 +404,29 @@ mod tests {
             .handle_message(host_id, ClientMessage::GameInput(input))
             .unwrap();
         assert!(resp.is_none());
+    }
+
+    #[test]
+    fn game_input_in_lobby_is_ignored() {
+        let mut logic = ServerLogic::new();
+        let client_id: ClientId = 1;
+
+        let _ = handshake(&mut logic, client_id, "p1");
+
+        let input = common::protocol::InputPayload {
+            move_axis: Vec2::ZERO,
+            aim_pos: Vec2::ZERO,
+            shoot: false,
+        };
+
+        let resp = logic
+            .handle_message(client_id, ClientMessage::GameInput(input))
+            .unwrap();
+        assert!(resp.is_none());
+        assert!(matches!(
+            logic.client_state(client_id),
+            Some(ClientState::Lobby)
+        ));
     }
 
     #[test]
