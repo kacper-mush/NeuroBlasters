@@ -14,9 +14,11 @@ impl GameView {
 
 impl View for GameView {
     fn draw(&mut self, ctx: &AppContext) {
-        if let Some(game) = &ctx.game {
-            game.draw();
+        if ctx.game.is_none() {
+            return;
         }
+        let game = &ctx.game.as_ref().unwrap();
+        game.draw();
     }
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {

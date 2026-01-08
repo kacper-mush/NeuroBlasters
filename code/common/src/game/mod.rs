@@ -183,7 +183,7 @@ pub fn handle_shooting(
 
         return Some(Projectile {
             id: new_projectile_id,
-            owner_id: player.id,
+            owner_info: player.player_info.clone(),
             position: player.position + spawn_offset,
             velocity: aim_dir * PROJECTILE_SPEED,
             radius: PROJECTILE_RADIUS,
@@ -223,8 +223,8 @@ pub fn resolve_combat(
                 // We mark them as "dead" here, but remove them in step 2.
                 if player.health <= 0.0 {
                     kills.push(KillEvent {
-                        killer_id: proj.owner_id,
-                        victim_id: player.id,
+                        killer_info: proj.owner_info.clone(),
+                        victim_info: player.player_info.clone(),
                     });
                 }
 
@@ -299,7 +299,7 @@ pub fn check_round_winner(players: &[Tank]) -> Option<Team> {
         // We assume players with health <= 0 are already removed by resolve_combat,
         // but checking > 0 doesn't hurt.
         if p.health > 0.0 {
-            match p.team {
+            match p.player_info.team {
                 Team::Blue => blue_alive += 1,
                 Team::Red => red_alive += 1,
             }
@@ -323,26 +323,13 @@ pub fn check_round_winner(players: &[Tank]) -> Option<Team> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{PlayerId, RectWall, Team};
+    use crate::{
+        game::player::PlayerInfo,
+        protocol::{PlayerId, RectWall, Team},
+    };
     use glam::Vec2;
     #[allow(deprecated)]
     use rand::rngs::mock::StepRng; // Or use a seeded StdRng
-
-    // --- Helper to create dummy players ---
-    fn make_player(id: PlayerId, team: Team, pos: Vec2) -> Tank {
-        Tank {
-            id,
-            team,
-            position: pos,
-            nickname: "foo".to_string(),
-            velocity: Vec2::ZERO,
-            rotation: 0.0,
-            radius: 10.0,
-            speed: 100.0,
-            health: 100.0,
-            weapon_cooldown: 0.0,
-        }
-    }
 
     // --- Helper to create dummy map ---
     fn make_map() -> MapDefinition {
@@ -357,9 +344,14 @@ mod tests {
         }
     }
 
+    // --- Helper to create player info
+    fn make_info(id: PlayerId, team: Team) -> PlayerInfo {
+        PlayerInfo::new(id, "foo".to_string(), team)
+    }
+
     #[test]
     fn test_shooting_cooldown() {
-        let mut p = make_player(1, Team::Blue, Vec2::new(100.0, 100.0));
+        let mut p = Tank::new(make_info(1, Team::Blue), Vec2::new(100.0, 100.0));
         let dt = 0.1;
 
         let input_shoot = InputPayload {
@@ -390,9 +382,11 @@ mod tests {
     fn test_combat_damage_and_kills() {
         // Setup: Player 2 is at (200, 200).
         // We spawn a bullet exactly at (200, 200) owned by Player 1.
+        let infos = vec![make_info(1, Team::Blue), make_info(2, Team::Red)];
+
         let mut players = vec![
-            make_player(1, Team::Blue, Vec2::new(0.0, 0.0)),
-            make_player(2, Team::Red, Vec2::new(200.0, 200.0)),
+            Tank::new(infos[0].clone(), Vec2::new(0.0, 0.0)),
+            Tank::new(infos[1].clone(), Vec2::new(200.0, 200.0)),
         ];
 
         // Give Player 2 low health so they die in one hit
@@ -400,7 +394,7 @@ mod tests {
 
         let mut projectiles = vec![Projectile {
             id: 99,
-            owner_id: 1,                       // Owned by P1
+            owner_info: infos[0].clone(),      // Owned by P1
             position: Vec2::new(200.0, 200.0), // Hits P2 immediately
             velocity: Vec2::ZERO,
             radius: 5.0,
@@ -411,11 +405,11 @@ mod tests {
 
         // Assertions
         assert_eq!(kills.len(), 1, "Should generate 1 kill event");
-        assert_eq!(kills[0].victim_id, 2);
-        assert_eq!(kills[0].killer_id, 1);
+        assert_eq!(kills[0].victim_info.id, 2);
+        assert_eq!(kills[0].killer_info.id, 1);
 
         assert_eq!(players.len(), 1, "Dead player should be removed from list");
-        assert_eq!(players[0].id, 1, "Survivor should be Player 1");
+        assert_eq!(players[0].player_info.id, 1, "Survivor should be Player 1");
 
         assert!(
             projectiles.is_empty(),
@@ -427,15 +421,16 @@ mod tests {
     fn test_no_friendly_fire_logic_check() {
         // NOTE: Currently your code allows friendly fire.
         // This test ensures the code behaves as currently written (FF is ON).
+        let infos = vec![make_info(1, Team::Blue), make_info(2, Team::Blue)];
 
         let mut players = vec![
-            make_player(1, Team::Blue, Vec2::new(0.0, 0.0)),
-            make_player(2, Team::Blue, Vec2::new(50.0, 50.0)), // Teammate
+            Tank::new(infos[0].clone(), Vec2::new(0.0, 0.0)),
+            Tank::new(infos[1].clone(), Vec2::new(50.0, 50.0)), // Teammate
         ];
 
         let mut projectiles = vec![Projectile {
             id: 88,
-            owner_id: 1,
+            owner_info: infos[0].clone(),
             position: Vec2::new(50.0, 50.0), // Hits teammate
             velocity: Vec2::ZERO,
             radius: 5.0,
@@ -452,19 +447,22 @@ mod tests {
 
     #[test]
     fn test_win_condition() {
+        let infos = vec![make_info(1, Team::Blue), make_info(2, Team::Red)];
+
         // Scenario 1: Both teams alive
         let p1 = vec![
-            make_player(1, Team::Blue, Vec2::ZERO),
-            make_player(2, Team::Red, Vec2::ZERO),
+            Tank::new(infos[0].clone(), Vec2::ZERO),
+            Tank::new(infos[1].clone(), Vec2::ZERO),
         ];
+
         assert_eq!(check_round_winner(&p1), None);
 
         // Scenario 2: Blue Eliminated
-        let p2 = vec![make_player(2, Team::Red, Vec2::ZERO)];
+        let p2 = vec![Tank::new(infos[1].clone(), Vec2::ZERO)];
         assert_eq!(check_round_winner(&p2), Some(Team::Red));
 
         // Scenario 3: Red Eliminated
-        let p3 = vec![make_player(1, Team::Blue, Vec2::ZERO)];
+        let p3 = vec![Tank::new(infos[0].clone(), Vec2::ZERO)];
         assert_eq!(check_round_winner(&p3), Some(Team::Blue));
     }
 

@@ -5,7 +5,7 @@ use glam::Vec2;
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
-use crate::protocol::GameCode;
+use crate::{game::player::PlayerInfo, protocol::GameCode};
 
 pub type PlayerId = u16;
 
@@ -25,9 +25,7 @@ pub enum Team {
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct Tank {
-    pub id: PlayerId,
-    pub nickname: String,
-    pub team: Team,
+    pub player_info: PlayerInfo,
     #[bincode(with_serde)]
     pub position: Vec2,
     #[bincode(with_serde)]
@@ -42,7 +40,7 @@ pub struct Tank {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct Projectile {
     pub id: u64,
-    pub owner_id: PlayerId,
+    pub owner_info: PlayerInfo,
     #[bincode(with_serde)]
     pub position: Vec2,
     #[bincode(with_serde)]
@@ -98,8 +96,8 @@ pub enum GameState {
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct KillEvent {
-    pub killer_id: PlayerId,
-    pub victim_id: PlayerId,
+    pub killer_info: PlayerInfo,
+    pub victim_info: PlayerInfo,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]

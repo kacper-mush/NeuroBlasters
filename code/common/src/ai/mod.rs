@@ -2,7 +2,8 @@ pub mod pathfinding;
 
 use self::pathfinding::find_path_a_star;
 use crate::game::PROJECTILE_SPEED;
-use crate::net::protocol::objects::{InputPayload, MapDefinition, PlayerId, Projectile, Tank};
+use crate::game::player::PlayerInfo;
+use crate::net::protocol::objects::{InputPayload, MapDefinition, Projectile, Tank};
 use glam::Vec2;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -54,14 +55,14 @@ pub trait Policy: Send + Sync + PolicyClone {
 
 #[derive(Clone)]
 pub struct BotAgent {
-    pub id: PlayerId,
+    pub player_info: PlayerInfo,
     pub difficulty: BotDifficulty,
     policy: Box<dyn Policy>, // The active brain
     rng: StdRng,
 }
 
 impl BotAgent {
-    pub fn new(id: PlayerId, difficulty: BotDifficulty, seed: u64) -> Self {
+    pub fn new(player_info: PlayerInfo, difficulty: BotDifficulty, seed: u64) -> Self {
         let rng = StdRng::seed_from_u64(seed);
 
         // Factory: Pick the right brain based on difficulty
@@ -77,7 +78,7 @@ impl BotAgent {
         };
 
         Self {
-            id,
+            player_info,
             difficulty,
             policy,
             rng,
@@ -112,9 +113,9 @@ fn find_closest_enemy<'a>(ctx: &BotContext<'a>) -> Option<&'a Tank> {
     ctx.players
         .iter()
         .filter(|p| {
-            p.health > 0.0                  // Alive
-            && p.id != ctx.me.id            // Not me
-            && p.team != ctx.me.team // Not teammate
+            p.health > 0.0                                   // Alive
+            && p.player_info.id != ctx.me.player_info.id     // Not me
+            && p.player_info.team != ctx.me.player_info.team // Not teammate
         })
         .min_by(|p1, p2| {
             let d1 = ctx.me.position.distance_squared(p1.position);
@@ -154,7 +155,7 @@ fn has_line_of_sight(ctx: &BotContext, p1: Vec2, p2: Vec2) -> bool {
         // We don't want to shoot if ANY player (teammate or enemy) is in the way.
         // Obviously, we ignore the shooter (ctx.me) and the target (at p2).
         for player in ctx.players {
-            if player.id == ctx.me.id {
+            if player.player_info.id == ctx.me.player_info.id {
                 continue; // Ignore self
             }
 
@@ -259,7 +260,10 @@ impl ScriptedPolicy {
         let mut visible_enemies = Vec::new();
 
         for p in ctx.players {
-            if p.health > 0.0 && p.id != ctx.me.id && p.team != ctx.me.team {
+            if p.health > 0.0
+                && p.player_info.id != ctx.me.player_info.id
+                && p.player_info.team != ctx.me.player_info.team
+            {
                 let dist_sq = ctx.me.position.distance_squared(p.position);
                 if has_line_of_sight(ctx, ctx.me.position, p.position) {
                     visible_enemies.push((dist_sq, p.position));

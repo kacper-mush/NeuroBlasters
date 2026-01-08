@@ -3,7 +3,7 @@ use super::{
     resolve_player_collisions, update_projectiles,
 };
 use crate::ai::{BotAgent, BotDifficulty};
-use crate::game::player::HumanInfo;
+use crate::game::player::PlayerInfo;
 use crate::net::protocol::{
     EngineSnapshot, InputPayload, KillEvent, MapDefinition, PlayerId, Projectile, Tank, Team,
 };
@@ -15,7 +15,7 @@ pub struct GameEngine {
     tanks: Vec<Tank>,
     projectiles: Vec<Projectile>,
     map: MapDefinition,
-    humans: Vec<HumanInfo>,
+    humans: Vec<PlayerInfo>,
     bots: Vec<BotAgent>,
     next_player_id: PlayerId,
     projectile_id_counter: u64,
@@ -92,7 +92,7 @@ impl GameEngine {
             };
 
             // Get input or use default (idle)
-            let input = inputs.get(&tank.id).unwrap_or(&default_input);
+            let input = inputs.get(&tank.player_info.id).unwrap_or(&default_input);
 
             apply_player_physics(tank, input, &self.map, dt);
 
@@ -148,7 +148,8 @@ impl GameEngine {
             .or_else(|| self.random_free_position())
             .unwrap_or(Vec2::new(self.map.width * 0.5, self.map.height * 0.5));
 
-            self.tanks.push(Tank::new(id, nickname, team, pos));
+            self.tanks
+                .push(Tank::new(PlayerInfo::new(id, nickname, team), pos));
         }
 
         // Fill remaining spawnpoints with bots.
@@ -165,9 +166,10 @@ impl GameEngine {
         self.next_player_id += 1;
 
         let nickname = format!("Bot {}", bot_id);
-        let bot = BotAgent::new(bot_id, BotDifficulty::Hunter, bot_id as u64);
+        let player_info = PlayerInfo::new(bot_id, nickname.clone(), team);
+        let bot = BotAgent::new(player_info.clone(), BotDifficulty::Hunter, bot_id as u64);
         self.bots.push(bot);
-        self.tanks.push(Tank::new(bot_id, nickname, team, pos));
+        self.tanks.push(Tank::new(player_info, pos));
     }
 
     /// Helper to inject a player (e.g. on spawn)
@@ -188,9 +190,10 @@ impl GameEngine {
             Team::Red
         };
 
-        self.humans.push(HumanInfo::new(id, nickname.clone(), team));
+        let player_info = PlayerInfo::new(id, nickname.clone(), team);
+        self.humans.push(player_info.clone());
 
-        let tank = Tank::new(id, nickname, team, position);
+        let tank = Tank::new(player_info, position);
         self.tanks.push(tank);
         Ok(id)
     }
@@ -224,9 +227,10 @@ impl GameEngine {
 
     pub fn remove_player(&mut self, player_id: PlayerId) {
         self.humans.retain(|h| h.id != player_id);
-        self.bots.retain(|b| b.id != player_id);
-        self.tanks.retain(|tank| tank.id != player_id);
-        self.projectiles.retain(|proj| proj.owner_id != player_id);
+        self.bots.retain(|b| b.player_info.id != player_id);
+        self.tanks.retain(|tank| tank.player_info.id != player_id);
+        self.projectiles
+            .retain(|proj| proj.owner_info.id != player_id);
     }
 
     fn inject_bot_inputs(&mut self, inputs: &mut HashMap<PlayerId, InputPayload>, dt: f32) {
@@ -236,8 +240,8 @@ impl GameEngine {
         let map = &self.map;
 
         for bot in &mut self.bots {
-            let me_id = bot.id;
-            if let Some(me_index) = tanks.iter().position(|t| t.id == me_id) {
+            let me_id = bot.player_info.id;
+            if let Some(me_index) = tanks.iter().position(|t| t.player_info.id == me_id) {
                 let me = &tanks[me_index];
                 let input = bot.generate_input(me, tanks, projectiles, map, dt);
                 inputs.insert(me_id, input);

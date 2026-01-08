@@ -1,13 +1,15 @@
+use bincode::{Decode, Encode};
+
 use crate::net::protocol::{PlayerId, Team};
 
-#[derive(Debug, Clone)]
-pub struct HumanInfo {
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct PlayerInfo {
     pub id: PlayerId,
     pub nickname: String,
     pub team: Team,
 }
 
-impl HumanInfo {
+impl PlayerInfo {
     pub fn new(id: PlayerId, nickname: String, team: Team) -> Self {
         Self { id, nickname, team }
     }

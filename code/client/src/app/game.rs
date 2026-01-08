@@ -1,19 +1,128 @@
 use common::{
     game::{InputPayload, MapDefinition, Team, engine::GameEngine},
-    protocol::{ClientMessage, GameState, GameUpdate, InitialGameInfo},
+    protocol::{ClientMessage, GameEvent, GameState, GameUpdate, InitialGameInfo},
 };
 
 use crate::{
     server::Server,
-    ui::{TEXT_SMALL, Text, calc_transform},
+    ui::{
+        CANONICAL_SCREEN_MID_X, Layout, TEXT_MID, TEXT_SMALL, Text, TextHorizontalPositioning,
+        TextVerticalPositioning, calc_transform, default_text_params,
+    },
 };
 use macroquad::prelude::*;
+
+struct MainFeed {
+    text: String,
+}
+
+impl MainFeed {
+    fn new() -> Self {
+        Self {
+            text: String::new(),
+        }
+    }
+
+    fn set(&mut self, text: String) {
+        self.text = text;
+    }
+
+    fn draw(&self) {
+        Text::new_scaled(TEXT_MID).draw(&self.text, CANONICAL_SCREEN_MID_X, 50.);
+    }
+}
+
+struct FeedElement {
+    text: String,
+    active_time: f64,
+    time_start: Option<f64>,
+    is_active: bool,
+}
+
+impl FeedElement {
+    fn new(text: String, expire_time: f64) -> Self {
+        Self {
+            text,
+            time_start: None,
+            active_time: expire_time,
+            is_active: true,
+        }
+    }
+
+    fn update(&mut self, time: f64) {
+        match self.time_start {
+            None => {
+                self.time_start = Some(time);
+            }
+            Some(time_start) => {
+                if time - time_start >= self.active_time {
+                    self.is_active = false;
+                }
+            }
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        self.is_active
+    }
+}
+
+struct SideFeed {
+    events: Vec<FeedElement>,
+    display_time: f64,
+    max_display: u8,
+}
+
+impl SideFeed {
+    fn new(display_time: f64, max_display: u8) -> Self {
+        Self {
+            events: Vec::new(),
+            display_time,
+            max_display,
+        }
+    }
+
+    fn add(&mut self, text: String) {
+        self.events.push(FeedElement::new(text, self.display_time));
+    }
+
+    fn draw(&self) {
+        let x = 20.;
+        let mut layout = Layout::new(30., 5.);
+
+        let text = Text::new(
+            TextParams {
+                font_size: TEXT_SMALL,
+                ..default_text_params()
+            },
+            TextVerticalPositioning::CenterConsistent,
+            TextHorizontalPositioning::Left,
+        );
+
+        for el in self.events.iter().take(self.max_display as usize) {
+            text.draw(&el.text, x, layout.next());
+            layout.add(10.);
+        }
+    }
+
+    fn update(&mut self) {
+        // Only time the ones that are displayed
+        for el in self.events.iter_mut().take(self.max_display as usize) {
+            el.update(macroquad::time::get_time());
+        }
+
+        self.events.retain(|el| el.is_active());
+    }
+}
 
 pub(crate) struct Game {
     initial_game_info: InitialGameInfo,
     game_engine: GameEngine,
-    game_state: GameState,
+    pub game_state: GameState,
     is_host: bool,
+    current_round: u8,
+    main_feed: MainFeed,
+    side_feed: SideFeed,
 }
 
 impl Game {
@@ -25,6 +134,9 @@ impl Game {
             game_engine,
             game_state: GameState::Waiting,
             is_host,
+            current_round: 1,
+            main_feed: MainFeed::new(),
+            side_feed: SideFeed::new(5., 5),
         }
     }
 
@@ -32,6 +144,52 @@ impl Game {
         self.game_engine.apply_snapshot(game_update.snapshot.engine);
         self.game_state = game_update.snapshot.state;
         self.is_host = game_update.snapshot.game_master == server.get_client_id();
+        self.current_round = game_update.snapshot.round_number;
+        self.side_feed.update();
+
+        for event in game_update.events {
+            match event {
+                GameEvent::RoundEnded(winner) => self.side_feed.add(format!(
+                    "Round {} ended. Winner is {:?}!",
+                    self.current_round, winner
+                )),
+
+                GameEvent::RoundStarted => self
+                    .side_feed
+                    .add(format!("Round {} has started.", self.current_round)),
+
+                GameEvent::Kill(kill_event) => {
+                    let victim = format!(
+                        "{} ({:?})",
+                        kill_event.victim_info.nickname, kill_event.victim_info.team
+                    );
+                    let killer = format!(
+                        "{} ({:?})",
+                        kill_event.killer_info.nickname, kill_event.killer_info.team
+                    );
+
+                    self.side_feed.add(format!("{} killed {}", killer, victim));
+                }
+
+                GameEvent::PlayerJoined(player) => {
+                    self.side_feed.add(format!("{} joined the game.", player));
+                }
+
+                GameEvent::PlayerLeft(player) => {
+                    self.side_feed.add(format!("{} left the game.", player));
+                }
+            }
+        }
+
+        let string = match self.game_state {
+            GameState::Waiting => String::from("Waiting for game start"),
+            GameState::Countdown(count) => {
+                format!("Round {} starting in {}...", self.current_round, count)
+            }
+            GameState::Battle => String::new(),
+            GameState::Results(winner) => format!("Team {:?} won!", winner),
+        };
+        self.main_feed.set(string);
 
         let map = self.game_engine.map();
         let (scaling, x_offset, y_offset) = calc_transform(map.width, map.height);
@@ -105,17 +263,25 @@ impl Game {
                 transform_x(tank.position.x),
                 transform_y(tank.position.y),
                 scale(tank.radius),
-                if tank.team == Team::Blue { BLUE } else { RED },
+                if tank.player_info.team == Team::Blue {
+                    BLUE
+                } else {
+                    RED
+                },
             );
 
-            if tank.id == self.initial_game_info.player_id {
+            if tank.player_info.id == self.initial_game_info.player_id {
                 // Outline our player
                 draw_circle_lines(
                     transform_x(tank.position.x),
                     transform_y(tank.position.y),
                     scale(tank.radius),
                     scale(5.),
-                    if tank.team == Team::Blue { RED } else { BLUE },
+                    if tank.player_info.team == Team::Blue {
+                        RED
+                    } else {
+                        BLUE
+                    },
                 );
             }
 
@@ -152,7 +318,7 @@ impl Game {
 
             // Draw nick
             Text::new_simple(TEXT_SMALL, scaling).draw_no_scaling(
-                &tank.nickname,
+                &tank.player_info.nickname,
                 transform_x(tank.position.x),
                 transform_y(tank.position.y - tank.radius - hb_h - 30.),
             );
@@ -168,6 +334,9 @@ impl Game {
         }
 
         Text::new_scaled(TEXT_SMALL).draw(&get_fps().to_string(), 10., 10.);
+
+        self.main_feed.draw();
+        self.side_feed.draw();
     }
 
     pub fn can_user_start_game(&self) -> bool {
@@ -176,5 +345,9 @@ impl Game {
 
     pub fn get_game_code(&self) -> &str {
         &self.initial_game_info.game_code.0
+    }
+
+    pub fn get_current_round(&self) -> u8 {
+        self.current_round
     }
 }
