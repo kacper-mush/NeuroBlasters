@@ -120,6 +120,42 @@ impl MapDefinition {
                     (Team::Blue, (845.0, 691.0).into()),
                 ],
             },
+            MapName::Tiga => MapDefinition {
+                width: 800.0,
+                height: 600.0,
+                walls: vec![
+                    RectWall {
+                        min: (46.0, 137.0).into(),
+                        max: (356.0, 175.0).into(),
+                    },
+                    RectWall {
+                        min: (478.0, 450.0).into(),
+                        max: (757.0, 487.0).into(),
+                    },
+                    RectWall {
+                        min: (387.0, 240.0).into(),
+                        max: (437.0, 384.0).into(),
+                    },
+                    RectWall {
+                        min: (52.0, 443.0).into(),
+                        max: (353.0, 488.0).into(),
+                    },
+                    RectWall {
+                        min: (511.0, 133.0).into(),
+                        max: (742.0, 177.0).into(),
+                    },
+                ],
+                spawn_points: vec![
+                    (Team::Red, (69.0, 78.0).into()),
+                    (Team::Red, (141.0, 77.0).into()),
+                    (Team::Red, (225.0, 80.0).into()),
+                    (Team::Red, (298.0, 76.0).into()),
+                    (Team::Blue, (503.0, 537.0).into()),
+                    (Team::Blue, (581.0, 541.0).into()),
+                    (Team::Blue, (654.0, 542.0).into()),
+                    (Team::Blue, (716.0, 544.0).into()),
+                ],
+            },
         }
     }
 }
@@ -139,7 +175,7 @@ mod tests {
     fn map_name_prev_cycles_backward() {
         let first = MapName::Basic;
         let prev = first.prev();
-        assert_eq!(prev, MapName::Loss);
+        assert_eq!(prev, MapName::Tiga);
     }
 
     #[test]

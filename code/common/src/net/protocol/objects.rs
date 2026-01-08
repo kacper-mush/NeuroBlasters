@@ -70,6 +70,7 @@ pub struct MapDefinition {
 pub enum MapName {
     Basic,
     Loss,
+    Tiga,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
