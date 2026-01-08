@@ -601,7 +601,6 @@ mod tests {
         {
             assert_eq!(mode, TrainingMode::HumanVsAi);
             assert_eq!(human_id, Some(0));
-            // 1 Human + 4 Bots = 5
             assert_eq!(game_engine.tanks.len(), 5);
         } else {
             panic!("State should be Playing");
