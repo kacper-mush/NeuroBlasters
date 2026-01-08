@@ -1,6 +1,6 @@
+use crate::app::game::Game;
 use crate::app::{AppContext, Transition, View, ViewId};
-use crate::ui;
-use crate::ui::theme::{DARK_BG, NEON_CYAN, NEON_PINK, WALL_COLOR, WALL_OUTLINE};
+use crate::ui::{self, CANONICAL_SCREEN_MID_X};
 use crate::ui::{BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_HEIGHT, CANONICAL_SCREEN_WIDTH};
 use ::rand::SeedableRng;
 use ::rand::rngs::StdRng;
@@ -9,7 +9,7 @@ use burn::module::Module;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use common::ai::BotContext;
 use common::game::engine::GameEngine;
-use common::net::protocol::{InputPayload, MapDefinition, PlayerId, Tank, Team};
+use common::net::protocol::{InputPayload, MapDefinition, PlayerId, Tank};
 use common::rl::{BotBrain, extract_features};
 use glam::Vec2;
 use macroquad::miniquad::gl::{GL_SCISSOR_TEST, glDisable, glEnable, glScissor};
@@ -144,10 +144,6 @@ impl TrainingMenu {
         }
     }
 
-    fn calc_transform(engine: &GameEngine) -> (f32, f32, f32) {
-        ui::calc_transform(engine.map.width, engine.map.height)
-    }
-
     fn bot_action_to_input(actions: &[f32], ctx: &BotContext) -> InputPayload {
         let move_fwd = actions[0].tanh();
         let move_side = actions[1].tanh();
@@ -175,91 +171,6 @@ impl TrainingMenu {
             move_axis: world_move,
             aim_pos,
             shoot: shoot_val > 0.0,
-        }
-    }
-
-    fn draw_game(game_engine: &GameEngine) {
-        clear_background(DARK_BG);
-        let (scaling, x_offset, y_offset) = Self::calc_transform(game_engine);
-        let transform_x = |x: f32| x * scaling + x_offset;
-        let transform_y = |y: f32| y * scaling + y_offset;
-        let scale = |dim: f32| dim * scaling;
-
-        for wall in &game_engine.map.walls {
-            draw_rectangle(
-                transform_x(wall.min.x),
-                transform_y(wall.min.y),
-                scale(wall.max.x - wall.min.x),
-                scale(wall.max.y - wall.min.y),
-                WALL_COLOR,
-            );
-            draw_rectangle_lines(
-                transform_x(wall.min.x),
-                transform_y(wall.min.y),
-                scale(wall.max.x - wall.min.x),
-                scale(wall.max.y - wall.min.y),
-                2.0,
-                WALL_OUTLINE,
-            );
-        }
-
-        for player in &game_engine.tanks {
-            let (main_color, glow_color) = if player.player_info.team == Team::Blue {
-                (NEON_CYAN, Color::new(0.0, 1.0, 1.0, 0.2))
-            } else {
-                (NEON_PINK, Color::new(1.0, 0.0, 1.0, 0.2))
-            };
-            if player.health <= 0.0 {
-                continue;
-            }
-            // Glow
-            draw_circle(
-                transform_x(player.position.x),
-                transform_y(player.position.y),
-                scale(player.radius) * 1.5,
-                glow_color,
-            );
-            // Main Body
-            draw_circle(
-                transform_x(player.position.x),
-                transform_y(player.position.y),
-                scale(player.radius),
-                main_color,
-            );
-            // Inner Core
-            draw_circle(
-                transform_x(player.position.x),
-                transform_y(player.position.y),
-                scale(player.radius) * 0.5,
-                BLACK,
-            );
-
-            let aim_dir = Vec2::new(player.rotation.cos(), player.rotation.sin());
-            draw_line(
-                transform_x(player.position.x),
-                transform_y(player.position.y),
-                transform_x(player.position.x + aim_dir.x * 30.0),
-                transform_y(player.position.y + aim_dir.y * 30.0),
-                scale(3.0),
-                DARKGRAY,
-            );
-            let hp_pct = player.health / 100.0;
-            draw_rectangle(
-                transform_x(player.position.x - 20.),
-                transform_y(player.position.y - 30.),
-                scale(40. * hp_pct),
-                scale(5.),
-                GREEN,
-            );
-        }
-
-        for proj in &game_engine.projectiles {
-            draw_circle(
-                transform_x(proj.position.x),
-                transform_y(proj.position.y),
-                scale(proj.radius),
-                YELLOW,
-            );
         }
     }
 }
@@ -307,39 +218,7 @@ impl View for TrainingMenu {
                 let mut inputs = std::collections::HashMap::new();
 
                 if let Some(hid) = human_id {
-                    let (scaling, x_offset, y_offset) = Self::calc_transform(game_engine);
-                    let inv_transform_x = |x: f32| (x - x_offset) / scaling;
-                    let inv_transform_y = |y: f32| (y - y_offset) / scaling;
-                    let mouse_pos = mouse_position();
-                    let aim_pos =
-                        (inv_transform_x(mouse_pos.0), inv_transform_y(mouse_pos.1)).into();
-
-                    let input = InputPayload {
-                        move_axis: {
-                            let mut axis = (0.0f32, 0.0f32);
-                            if is_key_down(KeyCode::W) {
-                                axis.1 -= 1.0;
-                            }
-                            if is_key_down(KeyCode::S) {
-                                axis.1 += 1.0;
-                            }
-                            if is_key_down(KeyCode::A) {
-                                axis.0 -= 1.0;
-                            }
-                            if is_key_down(KeyCode::D) {
-                                axis.0 += 1.0;
-                            }
-                            if axis.0 != 0. || axis.1 != 0. {
-                                let len = (axis.0 * axis.0 + axis.1 * axis.1).sqrt();
-                                axis.0 /= len;
-                                axis.1 /= len;
-                            }
-                            axis.into()
-                        },
-                        aim_pos,
-                        shoot: is_mouse_button_down(MouseButton::Left)
-                            || is_key_down(KeyCode::Space),
-                    };
+                    let input = Game::gather_user_input(game_engine);
                     inputs.insert(*hid, input);
                 }
 
@@ -554,16 +433,19 @@ impl View for TrainingMenu {
             }
 
             TrainingState::Playing {
-                game_engine, mode, ..
+                game_engine,
+                mode,
+                human_id,
+                ..
             } => {
-                Self::draw_game(game_engine);
+                Game::draw_game_board(game_engine, *human_id);
                 let mode_str = match mode {
                     TrainingMode::Spectator => "SPECTATOR",
                     TrainingMode::HumanVsAi => "PLAYING",
                 };
                 ui::Text::new_scaled(20).draw(
                     &format!("{} | Reset: R | Exit: ESC", mode_str),
-                    screen_width() / 2.,
+                    CANONICAL_SCREEN_MID_X,
                     30.,
                 );
             }

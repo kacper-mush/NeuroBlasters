@@ -1,6 +1,6 @@
 use common::{
     game::{InputPayload, MapDefinition, Team, engine::GameEngine},
-    protocol::{ClientMessage, GameEvent, GameState, GameUpdate, InitialGameInfo},
+    protocol::{ClientMessage, GameEvent, GameState, GameUpdate, InitialGameInfo, PlayerId},
 };
 
 use crate::{
@@ -100,7 +100,18 @@ impl Game {
         };
         self.main_feed.set(string);
 
-        let map = self.game_engine.map();
+        let input = Game::gather_user_input(&self.game_engine);
+        server.send_client_message(ClientMessage::GameInput(input));
+    }
+
+    pub fn draw(&self) {
+        Game::draw_game_board(&self.game_engine, Some(self.initial_game_info.player_id));
+        self.main_feed.draw();
+        self.side_feed.draw();
+    }
+
+    pub fn gather_user_input(game_engine: &GameEngine) -> InputPayload {
+        let map = game_engine.map();
         let (scaling, x_offset, y_offset) = calc_transform(map.width, map.height);
         let inv_transform_x = |x: f32| (x - x_offset) / scaling;
         let inv_transform_y = |y: f32| (y - y_offset) / scaling;
@@ -108,7 +119,7 @@ impl Game {
         let mouse_pos = mouse_position();
         let aim_pos = (inv_transform_x(mouse_pos.0), inv_transform_y(mouse_pos.1)).into();
 
-        let input = InputPayload {
+        InputPayload {
             move_axis: {
                 let mut axis = (0.0f32, 0.0f32);
                 if is_key_down(KeyCode::W) {
@@ -133,15 +144,13 @@ impl Game {
             },
             aim_pos,
             shoot: is_mouse_button_down(MouseButton::Left) || is_key_down(KeyCode::Space),
-        };
-
-        server.send_client_message(ClientMessage::GameInput(input));
+        }
     }
 
-    pub fn draw(&self) {
+    pub fn draw_game_board(game_engine: &GameEngine, player_id: Option<PlayerId>) {
         clear_background(DARK_BG);
 
-        let map = self.game_engine.map();
+        let map = game_engine.map();
         let (scaling, x_offset, y_offset) = calc_transform(map.width, map.height);
         let transform_x = |x: f32| x * scaling + x_offset;
         let transform_y = |y: f32| y * scaling + y_offset;
@@ -187,7 +196,7 @@ impl Game {
             draw_rectangle_lines(wx, wy, ww, wh, 2.0, WALL_OUTLINE);
         }
 
-        for tank in self.game_engine.tanks() {
+        for tank in game_engine.tanks() {
             let px = transform_x(tank.position.x);
             let py = transform_y(tank.position.y);
             let pr = scale(tank.radius);
@@ -205,7 +214,7 @@ impl Game {
             // Inner Core
             draw_circle(px, py, pr * 0.5, BLACK);
 
-            if tank.player_info.id == self.initial_game_info.player_id {
+            if player_id.is_some_and(|id| id == tank.player_info.id) {
                 // Outline our player
                 draw_circle_lines(px, py, pr + 3.0, 2.0, WHITE);
             }
@@ -262,7 +271,7 @@ impl Game {
             );
         }
 
-        for projectile in self.game_engine.projectiles() {
+        for projectile in game_engine.projectiles() {
             let px = transform_x(projectile.position.x);
             let py = transform_y(projectile.position.y);
             let pr = scale(projectile.radius);
@@ -272,9 +281,6 @@ impl Game {
             // Projectile Core
             draw_circle(px, py, pr, YELLOW);
         }
-
-        self.main_feed.draw();
-        self.side_feed.draw();
     }
 
     pub fn can_user_start_game(&self) -> bool {

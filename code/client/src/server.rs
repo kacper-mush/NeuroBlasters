@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::net::ToSocketAddrs;
 
 use common::protocol::{
@@ -31,17 +30,6 @@ pub(crate) enum ClientState {
     Connected,
     /// In a game
     Playing,
-}
-
-impl Debug for ClientState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = match self {
-            ClientState::Disconnected => "Disconnected",
-            ClientState::Connected => "Connected",
-            ClientState::Playing => "Playing",
-        };
-        f.write_str(name)
-    }
 }
 
 struct ConnectionData {
@@ -346,6 +334,7 @@ impl Server {
         self.complete_request_fn(response, |_| Ok(success))
     }
 
+    #[must_use]
     pub fn take_request_response(&mut self) -> Option<Result<(), String>> {
         self.request_response.take()
     }
@@ -355,14 +344,17 @@ impl Server {
         *self = Self::new();
     }
 
+    #[must_use]
     pub fn game_update(&mut self) -> Option<GameUpdate> {
         self.game_update.take()
     }
 
+    #[must_use]
     pub fn initial_game_info(&mut self) -> Option<InitialGameInfo> {
         self.initial_game_info.take()
     }
 
+    #[must_use]
     pub fn client_id(&self) -> Option<ClientId> {
         self.connection_data.as_ref().map(|c| c.client_id)
     }
