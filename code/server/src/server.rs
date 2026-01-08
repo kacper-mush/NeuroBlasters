@@ -7,7 +7,7 @@ use crate::server_logic::{MAX_CLIENTS, ServerLogic};
 
 use renet::{ClientId, ConnectionConfig, RenetServer, ServerEvent};
 use renet_netcode::{NetcodeServerTransport, ServerAuthentication, ServerConfig};
-use tracing::{debug, info};
+use tracing::{info, warn};
 
 const SERVER_PORT: u16 = 8080;
 const PROTOCOL_ID: u64 = 0;
@@ -104,7 +104,7 @@ impl ServerApp {
                 let msg = match decode_client_message(bytes.as_ref()) {
                     Ok(m) => m,
                     Err(e) => {
-                        debug!(%client_id, %e, "Failed to decode message");
+                        warn!(%client_id, %e, "Failed to decode message");
                         continue;
                     }
                 };
@@ -115,7 +115,7 @@ impl ServerApp {
                     Ok(Some(message)) => self.send_message(client_id, message),
                     Ok(None) => (),
                     Err(e) => {
-                        debug!(%client_id, %e, "Failed to handle message");
+                        warn!(%client_id, %e, "Failed to handle message");
                         self.send_message(client_id, ServerMessage::Error(e));
                     }
                 }

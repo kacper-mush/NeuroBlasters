@@ -1,7 +1,7 @@
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::game::{Game, StartCountdownError};
 use common::protocol::{
@@ -72,6 +72,7 @@ impl GameManager {
         rounds: u8,
     ) -> Result<CreateGameResponse, String> {
         if self.games.len() >= MAX_GAMES {
+            debug!(%game_master, "Failed to create game: server full of games");
             return Ok(CreateGameResponse::TooManyGames);
         }
 
@@ -102,18 +103,24 @@ impl GameManager {
         nickname: String,
     ) -> JoinGameResponse {
         let Some(game) = self.games.get_mut(game_code) else {
+            debug!(?game_code, %client_id, "Failed to join game: invalid code");
             return JoinGameResponse::InvalidCode;
         };
 
         if game.game_state_info() != GameState::Waiting {
+            debug!(?game_code, %client_id, "Failed to join game: game already started");
             return JoinGameResponse::GameStarted;
         }
 
-        match game.add_player(client_id, nickname) {
+        match game.add_player(client_id, nickname.clone()) {
             Some(player_id) => {
+                info!(?game_code, %client_id, %nickname, "Player joined game");
                 JoinGameResponse::Ok(game.initial_game_info(game_code.clone(), player_id))
             }
-            None => JoinGameResponse::GameFull,
+            None => {
+                debug!(?game_code, %client_id, "Failed to join game: game full");
+                JoinGameResponse::GameFull
+            }
         }
     }
 
@@ -123,7 +130,9 @@ impl GameManager {
         };
 
         game.remove_player(client_id)
-            .ok_or("Player not found in game")?;
+            .ok_or_else(|| "Player not found in game".to_string())?;
+
+        info!(?game_code, %client_id, "Player left game");
 
         if game.is_empty() {
             self.games.remove(game_code);
@@ -143,8 +152,12 @@ impl GameManager {
         };
 
         match game.start_countdown(client_id) {
-            Ok(()) => Ok(StartCountdownResponse::Ok),
+            Ok(()) => {
+                info!(?game_code, %client_id, "Countdown started");
+                Ok(StartCountdownResponse::Ok)
+            }
             Err(StartCountdownError::NotEnoughPlayers) => {
+                debug!(?game_code, %client_id, "Failed to start countdown: not enough players");
                 Ok(StartCountdownResponse::NotEnoughPlayers)
             }
             Err(StartCountdownError::NotTheGameMaster) => {
