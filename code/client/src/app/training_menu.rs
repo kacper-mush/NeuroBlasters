@@ -579,7 +579,7 @@ mod tests {
             assert_eq!(mode, TrainingMode::Spectator);
             assert!(human_id.is_none());
             // 4 vs 4
-            assert_eq!(game_engine.players.len(), 8);
+            assert_eq!(game_engine.tanks.len(), 8);
         } else {
             panic!("State should be Playing");
         }
@@ -602,7 +602,7 @@ mod tests {
             assert_eq!(mode, TrainingMode::HumanVsAi);
             assert_eq!(human_id, Some(0));
             // 1 Human + 4 Bots = 5
-            assert_eq!(game_engine.players.len(), 5);
+            assert_eq!(game_engine.tanks.len(), 5);
         } else {
             panic!("State should be Playing");
         }
