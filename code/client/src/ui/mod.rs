@@ -106,3 +106,46 @@ pub(crate) fn draw_texture_centered(texture: &Texture2D, x: f32, y: f32, scale: 
         },
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_layout_initial_position() {
+        let layout = Layout::new(100.0, 10.0);
+        assert_eq!(layout.next(), 100.0);
+    }
+
+    #[test]
+    fn test_layout_advances_correctly() {
+        let mut layout = Layout::new(50.0, 5.0);
+        assert_eq!(layout.next(), 50.0);
+
+        layout.add(20.0); // element size 20 + padding 5 = 25
+        assert_eq!(layout.next(), 75.0);
+
+        layout.add(10.0); // element size 10 + padding 5 = 15
+        assert_eq!(layout.next(), 90.0);
+    }
+
+    #[test]
+    fn test_layout_zero_padding() {
+        let mut layout = Layout::new(0.0, 0.0);
+        assert_eq!(layout.next(), 0.0);
+
+        layout.add(100.0);
+        assert_eq!(layout.next(), 100.0);
+    }
+
+    #[test]
+    fn test_layout_multiple_elements() {
+        let mut layout = Layout::new(0.0, 10.0);
+
+        for i in 0..5 {
+            let expected = i as f32 * (30.0 + 10.0); // element + padding
+            assert_eq!(layout.next(), expected);
+            layout.add(30.0);
+        }
+    }
+}

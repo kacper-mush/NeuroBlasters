@@ -1,6 +1,6 @@
+use crate::app::model_select::ModelSelect;
 use crate::app::options_menu::OptionsMenu;
 use crate::app::server_connect_menu::ServerConnectMenu;
-use crate::app::training_menu::TrainingMenu;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::ui::{
     BANNER_TEXUTRE, BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout,
@@ -100,7 +100,7 @@ impl View for MainMenu {
     fn update(&mut self, _ctx: &mut AppContext) -> Transition {
         match self.button_pressed {
             Some(button) => match button {
-                MainMenuButtons::Training => Transition::Push(Box::new(TrainingMenu::new())),
+                MainMenuButtons::Training => Transition::Push(Box::new(ModelSelect::new())),
                 MainMenuButtons::Multiplayer => {
                     Transition::Push(Box::new(ServerConnectMenu::new()))
                 }

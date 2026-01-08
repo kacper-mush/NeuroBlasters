@@ -14,12 +14,14 @@ mod game_creation;
 mod game_view;
 mod in_game_menu;
 mod main_menu;
+mod model_select;
 mod options_menu;
 mod popup;
 mod request_view;
 mod server_connect_menu;
 mod server_lobby;
-mod training_menu;
+mod training;
+mod training_mode_select;
 
 // Global data that persists across views
 pub(crate) struct AppContext {
@@ -30,7 +32,6 @@ pub(crate) struct AppContext {
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub(crate) enum ViewId {
     MainMenu,
-    TrainingMenu,
     ServerConnectMenu,
     ServerLobby,
     GameView,
@@ -39,6 +40,9 @@ pub(crate) enum ViewId {
     Popup,
     GameCreation,
     RequestView,
+    ModelSelect,
+    TrainingModeSelect,
+    Training,
 }
 
 pub(crate) enum Transition {

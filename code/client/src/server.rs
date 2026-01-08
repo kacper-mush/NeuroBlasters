@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::net::ToSocketAddrs;
 
 use common::protocol::{
@@ -23,7 +22,7 @@ use renet_netcode::{
 };
 
 /// Represents in what state of the communication the client is
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum ClientState {
     /// Initial state
     Disconnected,
@@ -31,17 +30,6 @@ pub(crate) enum ClientState {
     Connected,
     /// In a game
     Playing,
-}
-
-impl Debug for ClientState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = match self {
-            ClientState::Disconnected => "Disconnected",
-            ClientState::Connected => "Connected",
-            ClientState::Playing => "Playing",
-        };
-        f.write_str(name)
-    }
 }
 
 struct ConnectionData {
@@ -346,6 +334,7 @@ impl Server {
         self.complete_request_fn(response, |_| Ok(success))
     }
 
+    #[must_use]
     pub fn take_request_response(&mut self) -> Option<Result<(), String>> {
         self.request_response.take()
     }
@@ -355,14 +344,17 @@ impl Server {
         *self = Self::new();
     }
 
+    #[must_use]
     pub fn game_update(&mut self) -> Option<GameUpdate> {
         self.game_update.take()
     }
 
+    #[must_use]
     pub fn initial_game_info(&mut self) -> Option<InitialGameInfo> {
         self.initial_game_info.take()
     }
 
+    #[must_use]
     pub fn client_id(&self) -> Option<ClientId> {
         self.connection_data.as_ref().map(|c| c.client_id)
     }
@@ -436,4 +428,404 @@ fn connect_blocking(mut servername: String, username: String) -> Result<Connecti
         client_id,
         transport,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::protocol::{GameCode, GameSnapshot, MapName, PlayerId};
+
+    #[test]
+    fn test_server_new_initial_state() {
+        let server = Server::new();
+
+        assert!(server.connection_data.is_none());
+        assert!(server.connect_rx.is_none());
+        assert!(server.game_update.is_none());
+        assert!(server.initial_game_info.is_none());
+        assert_eq!(server.client_state, ClientState::Disconnected);
+        assert!(server.request_response.is_none());
+        assert!(!server.request_pending);
+    }
+
+    #[test]
+    fn test_server_close_resets_state() {
+        let mut server = Server::new();
+
+        // Modify some state
+        server.request_pending = true;
+        server.request_response = Some(Ok(()));
+        server.client_state = ClientState::Connected;
+
+        // Close should reset everything
+        server.close();
+
+        assert!(server.connection_data.is_none());
+        assert_eq!(server.client_state, ClientState::Disconnected);
+        assert!(server.request_response.is_none());
+        assert!(!server.request_pending);
+    }
+
+    #[test]
+    fn test_take_request_response() {
+        let mut server = Server::new();
+
+        // Initially none
+        assert!(server.take_request_response().is_none());
+
+        // Set a response
+        server.request_response = Some(Ok(()));
+        assert!(server.take_request_response().is_some());
+
+        // Should be consumed
+        assert!(server.take_request_response().is_none());
+    }
+
+    #[test]
+    fn test_take_request_response_with_error() {
+        let mut server = Server::new();
+
+        server.request_response = Some(Err("Test error".to_string()));
+        let response = server.take_request_response();
+
+        assert!(response.is_some());
+        assert!(response.unwrap().is_err());
+    }
+
+    #[test]
+    fn test_game_update_take() {
+        let mut server = Server::new();
+
+        // Initially none
+        assert!(server.game_update().is_none());
+
+        // Set an update
+        server.game_update = Some(GameUpdate {
+            snapshot: GameSnapshot {
+                engine: common::protocol::EngineSnapshot {
+                    tanks: vec![],
+                    projectiles: vec![],
+                },
+                state: common::protocol::GameState::Waiting,
+                game_master: 1,
+                round_number: 1,
+            },
+            events: vec![],
+        });
+
+        assert!(server.game_update().is_some());
+        // Should be consumed
+        assert!(server.game_update().is_none());
+    }
+
+    #[test]
+    fn test_initial_game_info_take() {
+        let mut server = Server::new();
+
+        // Initially none
+        assert!(server.initial_game_info().is_none());
+
+        // Set game info
+        server.initial_game_info = Some(InitialGameInfo {
+            game_code: GameCode("1234".to_string()),
+            player_id: 0 as PlayerId,
+            num_rounds: 3,
+            map_name: MapName::Basic,
+            game_master: 1,
+        });
+
+        assert!(server.initial_game_info().is_some());
+        // Should be consumed
+        assert!(server.initial_game_info().is_none());
+    }
+
+    #[test]
+    fn test_client_id_none_when_not_connected() {
+        let server = Server::new();
+        assert!(server.client_id().is_none());
+    }
+
+    #[test]
+    fn test_assert_state_passes_when_correct() {
+        let server = Server::new();
+        server.assert_state(ClientState::Disconnected); // Should not panic
+    }
+
+    #[test]
+    #[should_panic(expected = "Server is in invalid state")]
+    fn test_assert_state_panics_when_wrong() {
+        let server = Server::new();
+        server.assert_state(ClientState::Connected); // Should panic
+    }
+
+    // Test state machine transitions via handle_*_state methods
+    // These require request_pending to be true to properly complete
+
+    #[test]
+    fn test_handle_disconnected_state_handshake_ok() {
+        let mut server = Server::new();
+        server.request_pending = true;
+
+        let result = server
+            .handle_disconnected_state(ServerMessage::HandshakeResponse(HandshakeResponse::Ok));
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), ClientState::Connected);
+        assert!(!server.request_pending);
+        assert!(server.request_response.is_some());
+        assert!(server.request_response.as_ref().unwrap().is_ok());
+    }
+
+    #[test]
+    fn test_handle_disconnected_state_api_mismatch() {
+        let mut server = Server::new();
+        server.request_pending = true;
+
+        let result = server.handle_disconnected_state(ServerMessage::HandshakeResponse(
+            HandshakeResponse::ApiMismatch,
+        ));
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("API mismatch"));
+    }
+
+    #[test]
+    fn test_handle_disconnected_state_server_full() {
+        let mut server = Server::new();
+        server.request_pending = true;
+
+        let result = server.handle_disconnected_state(ServerMessage::HandshakeResponse(
+            HandshakeResponse::ServerFull,
+        ));
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("server is full"));
+    }
+
+    #[test]
+    fn test_handle_disconnected_state_error_message() {
+        let mut server = Server::new();
+        server.request_pending = true;
+
+        let result =
+            server.handle_disconnected_state(ServerMessage::Error("Custom error".to_string()));
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Custom error"));
+    }
+
+    #[test]
+    fn test_handle_disconnected_state_invalid_message() {
+        let mut server = Server::new();
+        server.request_pending = true;
+
+        let result = server.handle_disconnected_state(ServerMessage::LeaveGameAck);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid server message"));
+    }
+
+    #[test]
+    fn test_handle_connected_state_create_game_ok() {
+        let mut server = Server::new();
+        server.client_state = ClientState::Connected;
+        server.request_pending = true;
+
+        let game_info = InitialGameInfo {
+            game_code: GameCode("5678".to_string()),
+            player_id: 1,
+            num_rounds: 5,
+            map_name: MapName::Basic,
+            game_master: 100,
+        };
+
+        let result = server.handle_connected_state(ServerMessage::CreateGameReponse(
+            CreateGameResponse::Ok(game_info.clone()),
+        ));
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), ClientState::Playing);
+        assert!(server.initial_game_info.is_some());
+        let info = server.initial_game_info.unwrap();
+        assert_eq!(info.game_code.0, "5678");
+    }
+
+    #[test]
+    fn test_handle_connected_state_create_game_too_many() {
+        let mut server = Server::new();
+        server.client_state = ClientState::Connected;
+        server.request_pending = true;
+
+        let result = server.handle_connected_state(ServerMessage::CreateGameReponse(
+            CreateGameResponse::TooManyGames,
+        ));
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), ClientState::Connected);
+        assert!(server.request_response.as_ref().unwrap().is_err());
+    }
+
+    #[test]
+    fn test_handle_connected_state_join_game_ok() {
+        let mut server = Server::new();
+        server.client_state = ClientState::Connected;
+        server.request_pending = true;
+
+        let game_info = InitialGameInfo {
+            game_code: GameCode("9999".to_string()),
+            player_id: 2,
+            num_rounds: 3,
+            map_name: MapName::Basic,
+            game_master: 50,
+        };
+
+        let result = server.handle_connected_state(ServerMessage::JoinGameResponse(
+            JoinGameResponse::Ok(game_info),
+        ));
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), ClientState::Playing);
+    }
+
+    #[test]
+    fn test_handle_connected_state_join_game_full() {
+        let mut server = Server::new();
+        server.client_state = ClientState::Connected;
+        server.request_pending = true;
+
+        let result = server
+            .handle_connected_state(ServerMessage::JoinGameResponse(JoinGameResponse::GameFull));
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), ClientState::Connected);
+        let resp = server.request_response.as_ref().unwrap();
+        assert!(resp.is_err());
+        assert!(resp.as_ref().unwrap_err().contains("full"));
+    }
+
+    #[test]
+    fn test_handle_connected_state_join_game_invalid_code() {
+        let mut server = Server::new();
+        server.client_state = ClientState::Connected;
+        server.request_pending = true;
+
+        let result = server.handle_connected_state(ServerMessage::JoinGameResponse(
+            JoinGameResponse::InvalidCode,
+        ));
+
+        assert!(result.is_ok());
+        let resp = server.request_response.as_ref().unwrap();
+        assert!(resp.as_ref().unwrap_err().contains("invalid code"));
+    }
+
+    #[test]
+    fn test_handle_connected_state_join_game_started() {
+        let mut server = Server::new();
+        server.client_state = ClientState::Connected;
+        server.request_pending = true;
+
+        let result = server.handle_connected_state(ServerMessage::JoinGameResponse(
+            JoinGameResponse::GameStarted,
+        ));
+
+        assert!(result.is_ok());
+        let resp = server.request_response.as_ref().unwrap();
+        assert!(resp.as_ref().unwrap_err().contains("already started"));
+    }
+
+    #[test]
+    fn test_handle_playing_state_game_update() {
+        let mut server = Server::new();
+        server.client_state = ClientState::Playing;
+
+        let update = GameUpdate {
+            snapshot: GameSnapshot {
+                engine: common::protocol::EngineSnapshot {
+                    tanks: vec![],
+                    projectiles: vec![],
+                },
+                state: common::protocol::GameState::Battle(60),
+                game_master: 1,
+                round_number: 2,
+            },
+            events: vec![],
+        };
+
+        let result = server.handle_playing_state(ServerMessage::GameUpdate(update));
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), ClientState::Playing);
+        assert!(server.game_update.is_some());
+    }
+
+    #[test]
+    fn test_handle_playing_state_start_countdown_ack() {
+        let mut server = Server::new();
+        server.client_state = ClientState::Playing;
+        server.request_pending = true;
+
+        let result = server.handle_playing_state(ServerMessage::StartCountdownAck);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), ClientState::Playing);
+        assert!(server.request_response.as_ref().unwrap().is_ok());
+    }
+
+    #[test]
+    fn test_handle_playing_state_leave_game_ack() {
+        let mut server = Server::new();
+        server.client_state = ClientState::Playing;
+        server.request_pending = true;
+
+        let result = server.handle_playing_state(ServerMessage::LeaveGameAck);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), ClientState::Connected);
+    }
+
+    #[test]
+    fn test_handle_playing_state_error() {
+        let mut server = Server::new();
+        server.client_state = ClientState::Playing;
+
+        let result = server.handle_playing_state(ServerMessage::Error("Game error".to_string()));
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Game error"));
+    }
+
+    #[test]
+    fn test_handle_playing_state_invalid_message() {
+        let mut server = Server::new();
+        server.client_state = ClientState::Playing;
+
+        let result =
+            server.handle_playing_state(ServerMessage::HandshakeResponse(HandshakeResponse::Ok));
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid server message"));
+    }
+
+    #[test]
+    fn test_complete_request_without_pending_fails() {
+        let mut server = Server::new();
+        server.request_pending = false;
+
+        let result = server.complete_request(Ok(()), ClientState::Connected);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("no request was made"));
+    }
+
+    #[test]
+    fn test_complete_request_with_existing_response_fails() {
+        let mut server = Server::new();
+        server.request_pending = true;
+        server.request_response = Some(Ok(()));
+
+        let result = server.complete_request(Ok(()), ClientState::Connected);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("no request was made"));
+    }
 }
