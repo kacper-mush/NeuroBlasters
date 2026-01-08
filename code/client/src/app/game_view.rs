@@ -13,7 +13,7 @@ impl GameView {
 }
 
 impl View for GameView {
-    fn draw(&mut self, ctx: &AppContext) {
+    fn draw(&mut self, ctx: &AppContext, _has_input: bool) {
         if ctx.game.is_none() {
             return;
         }
@@ -22,23 +22,7 @@ impl View for GameView {
     }
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {
-        match &mut ctx.server.client_state {
-            ClientState::Playing => {
-                // Default state
-            }
-            ClientState::Error(err) => {
-                return Transition::ConnectionLost(err.clone());
-            }
-            _ => {
-                panic!("Ended up in an invalid state!");
-            }
-        }
-
-        let game = ctx.game.as_mut().expect("Game must be present.");
-
-        if let Some(update) = ctx.server.game_update() {
-            game.update(update, &mut ctx.server);
-        }
+        ctx.server.assert_state(ClientState::Playing);
 
         if is_key_pressed(KeyCode::Escape) {
             return Transition::Push(Box::new(InGameMenu::new()));
@@ -49,15 +33,5 @@ impl View for GameView {
 
     fn get_id(&self) -> ViewId {
         ViewId::GameView
-    }
-
-    fn shadow_update(&mut self, ctx: &mut AppContext) {
-        // Update if in good state, and if in a bad state - it will be handled by the view above us
-        if let ClientState::Playing = &mut ctx.server.client_state
-            && let Some(update) = ctx.server.game_update()
-        {
-            let game = ctx.game.as_mut().expect("Game must be present.");
-            game.update(update, &mut ctx.server);
-        }
     }
 }

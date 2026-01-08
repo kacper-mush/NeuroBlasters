@@ -18,7 +18,7 @@ impl OptionsMenu {
 }
 
 impl View for OptionsMenu {
-    fn draw(&mut self, _ctx: &AppContext) {
+    fn draw(&mut self, _ctx: &AppContext, has_input: bool) {
         let x_mid = CANONICAL_SCREEN_MID_X;
         let y_mid = CANONICAL_SCREEN_MID_Y;
         let mut layout = Layout::new(y_mid - 50., 30.);
@@ -27,7 +27,14 @@ impl View for OptionsMenu {
         layout.add(30.);
 
         self.back_clicked = Button::default()
-            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Back"))
+            .draw_centered(
+                x_mid,
+                layout.next(),
+                BUTTON_W,
+                BUTTON_H,
+                Some("Back"),
+                has_input,
+            )
             .poll();
     }
 

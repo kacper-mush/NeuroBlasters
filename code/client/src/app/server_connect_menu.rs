@@ -29,7 +29,7 @@ impl ServerConnectMenu {
 }
 
 impl View for ServerConnectMenu {
-    fn draw(&mut self, _ctx: &AppContext) {
+    fn draw(&mut self, _ctx: &AppContext, has_input: bool) {
         let x_mid = CANONICAL_SCREEN_MID_X;
         let el_w = BUTTON_W;
         let el_h = BUTTON_H;
@@ -42,20 +42,20 @@ impl View for ServerConnectMenu {
         layout.add(20.);
 
         self.servername_field
-            .draw_centered(x_mid, layout.next(), el_w, el_h);
+            .draw_centered(x_mid, layout.next(), el_w, el_h, has_input);
         layout.add(el_h - 10.);
 
         Text::new_scaled(TEXT_MID).draw("Enter username:", x_mid, layout.next());
         layout.add(20.);
 
         self.username_field
-            .draw_centered(x_mid, layout.next(), el_w, el_h);
+            .draw_centered(x_mid, layout.next(), el_w, el_h, has_input);
         layout.add(el_h);
 
         self.button_pressed = None;
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Connect"))
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Connect"), has_input)
             .poll()
         {
             self.button_pressed = Some(ServerConnectButtons::Connect);
@@ -63,7 +63,7 @@ impl View for ServerConnectMenu {
         layout.add(el_h);
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Back"))
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Back"), has_input)
             .poll()
         {
             self.button_pressed = Some(ServerConnectButtons::Back);
@@ -71,13 +71,10 @@ impl View for ServerConnectMenu {
     }
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {
+        ctx.server.assert_state(ClientState::Disconnected);
+
         self.servername_field.update();
         self.username_field.update();
-
-        match &ctx.server.client_state {
-            ClientState::Disconnected => {}
-            _ => panic!("Invalid server state for the server connect view."),
-        }
 
         match self.button_pressed {
             Some(button) => match button {

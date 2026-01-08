@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::{mem, net::ToSocketAddrs};
+use std::net::ToSocketAddrs;
 
 use common::protocol::{
     API_VERSION, CreateGameResponse, GameUpdate, HandshakeResponse, InitialGameInfo,
@@ -22,9 +22,8 @@ use renet_netcode::{
     NetcodeTransportError,
 };
 
-enum Request {}
-
 /// Represents in what state of the communication the client is
+#[derive(PartialEq)]
 pub(crate) enum ClientState {
     /// Initial state
     Disconnected,
@@ -32,8 +31,6 @@ pub(crate) enum ClientState {
     Connected,
     /// In a game
     Playing,
-    /// Unrecoverable server error, client should drop connection
-    Error(String),
 }
 
 impl Debug for ClientState {
@@ -42,7 +39,6 @@ impl Debug for ClientState {
             ClientState::Disconnected => "Disconnected",
             ClientState::Connected => "Connected",
             ClientState::Playing => "Playing",
-            ClientState::Error(_) => "Error",
         };
         f.write_str(name)
     }
@@ -60,7 +56,7 @@ pub(crate) struct Server {
     last_tick: Instant,
     game_update: Option<GameUpdate>,
     initial_game_info: Option<InitialGameInfo>,
-    pub client_state: ClientState,
+    client_state: ClientState,
     /// If request failed, the client can check why
     request_response: Option<Result<(), String>>,
     request_pending: bool,
@@ -107,7 +103,7 @@ impl Server {
             .client_id
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> Result<(), String> {
         if let Some(rx) = &self.connect_rx {
             // Connecting to server has finished
             if let Ok(result) = rx.try_recv() {
@@ -131,9 +127,8 @@ impl Server {
         let dt = now.duration_since(self.last_tick);
         self.last_tick = now;
 
-        if let Err(reason) = self.handle_network(dt) {
-            self.client_state = ClientState::Error(reason);
-        }
+        self.handle_network(dt)?;
+        Ok(())
     }
 
     fn handle_network(&mut self, dt: Duration) -> Result<(), String> {
@@ -183,61 +178,45 @@ impl Server {
     ) -> Result<(), String> {
         while let Some(message) = connection_data.client.receive_message(RELIABLE_CHANNEL_ID) {
             let server_msg = decode_server_message(&message).or(Err("Invalid server message."))?;
-            self.process_message(server_msg);
+            self.client_state = self.process_message(server_msg)?;
         }
         Ok(())
     }
 
-    fn process_message(&mut self, server_msg: ServerMessage) {
-        //println!("Got server message: {:?}", server_msg);
-        let old_state = mem::replace(&mut self.client_state, ClientState::Disconnected);
-        //println!("Client state was before: {:?}", old_state);
-
-        self.client_state = match old_state {
+    fn process_message(&mut self, server_msg: ServerMessage) -> Result<ClientState, String> {
+        match &self.client_state {
             ClientState::Disconnected => self.handle_disconnected_state(server_msg),
-
             ClientState::Connected => self.handle_connected_state(server_msg),
-
             ClientState::Playing => self.handle_playing_state(server_msg),
-
-            ClientState::Error(err) => {
-                panic!(
-                    "Processing a message when the server is already in an inrecoverable error state! Reason for earlier failure: {}",
-                    err
-                )
-            }
-        };
-
-        //println!("State is now: {:?}", self.client_state);
-    }
-
-    fn handle_disconnected_state(&mut self, server_msg: ServerMessage) -> ClientState {
-        match server_msg {
-            ServerMessage::HandshakeResponse(resp) => match resp {
-                HandshakeResponse::Ok => self.complete_request(Ok(()), ClientState::Connected),
-                HandshakeResponse::ApiMismatch => {
-                    ClientState::Error("Server error: API mismatch.".into())
-                }
-                HandshakeResponse::ServerFull => {
-                    ClientState::Error("Server error: server is full.".into())
-                }
-            },
-
-            ServerMessage::Error(error) => {
-                ClientState::Error(format!("Server error while handshaking: {}", error))
-            }
-
-            _ => ClientState::Error("Got invalid server message while handshaking.".into()),
         }
     }
 
-    fn handle_connected_state(&mut self, server_msg: ServerMessage) -> ClientState {
+    fn handle_disconnected_state(
+        &mut self,
+        server_msg: ServerMessage,
+    ) -> Result<ClientState, String> {
+        match server_msg {
+            ServerMessage::HandshakeResponse(resp) => match resp {
+                HandshakeResponse::Ok => self.complete_request(Ok(()), ClientState::Connected),
+                HandshakeResponse::ApiMismatch => Err("Server error: API mismatch.".into()),
+                HandshakeResponse::ServerFull => Err("Server error: server is full.".into()),
+            },
+
+            ServerMessage::Error(error) => {
+                Err(format!("Server error while handshaking: {}", error))
+            }
+
+            _ => Err("Got invalid server message while handshaking.".into()),
+        }
+    }
+
+    fn handle_connected_state(&mut self, server_msg: ServerMessage) -> Result<ClientState, String> {
         match server_msg {
             ServerMessage::CreateGameReponse(resp) => match resp {
                 CreateGameResponse::Ok(initial_game_info) => {
                     self.complete_request_fn(Ok(()), |server: &mut Server| {
                         server.initial_game_info = Some(initial_game_info);
-                        ClientState::Playing
+                        Ok(ClientState::Playing)
                     })
                 }
                 CreateGameResponse::TooManyGames => self.complete_request(
@@ -250,7 +229,7 @@ impl Server {
                 JoinGameResponse::Ok(initial_game_info) => {
                     self.complete_request_fn(Ok(()), |server: &mut Server| {
                         server.initial_game_info = Some(initial_game_info);
-                        ClientState::Playing
+                        Ok(ClientState::Playing)
                     })
                 }
 
@@ -267,29 +246,29 @@ impl Server {
                 ),
             },
 
-            ServerMessage::Error(error) => ClientState::Error(format!("Server errror: {}", error)),
+            ServerMessage::Error(error) => Err(format!("Server errror: {}", error)),
 
-            _ => ClientState::Error("Got invalid server message.".into()),
+            _ => Err("Got invalid server message.".into()),
         }
     }
 
-    fn handle_playing_state(&mut self, server_msg: ServerMessage) -> ClientState {
+    fn handle_playing_state(&mut self, server_msg: ServerMessage) -> Result<ClientState, String> {
         match server_msg {
             ServerMessage::GameUpdate(new_update) => {
                 self.game_update = Some(new_update);
-                ClientState::Playing
+                Ok(ClientState::Playing)
             }
 
             ServerMessage::StartCountdownAck => self.complete_request(Ok(()), ClientState::Playing),
 
             ServerMessage::LeaveGameAck => self.complete_request(Ok(()), ClientState::Connected),
 
-            ServerMessage::Error(e) => ClientState::Error(format!(
+            ServerMessage::Error(e) => Err(format!(
                 "Got error response from server while in game: {}",
                 e
             )),
 
-            _ => ClientState::Error("Got invalid server message while in game.".into()),
+            _ => Err("Got invalid server message while in game.".into()),
         }
     }
 
@@ -342,16 +321,16 @@ impl Server {
     /// Tries to set the request response (if the response is a valid response to some request we made)
     /// on success, returns the success client state
     /// on failure, returns an error state with an appropriate message
-    fn complete_request_fn<F: FnOnce(&mut Server) -> ClientState>(
+    fn complete_request_fn<F: FnOnce(&mut Server) -> Result<ClientState, String>>(
         &mut self,
         response: Result<(), String>,
         success_action: F,
-    ) -> ClientState {
+    ) -> Result<ClientState, String> {
         // In both cases there is some unwanted response; the first case is simple, but in the second
         // we have a guarantee from the send_client_message function that we do not make 2 consecutive requests,
         // so this new response must also be at server's fault
         if !self.request_pending || self.request_response.is_some() {
-            return ClientState::Error("Server sent response but no request was made.".into());
+            return Err("Server sent response but no request was made.".into());
         }
 
         self.request_response = Some(response);
@@ -363,8 +342,8 @@ impl Server {
         &mut self,
         response: Result<(), String>,
         success: ClientState,
-    ) -> ClientState {
-        self.complete_request_fn(response, |_| success)
+    ) -> Result<ClientState, String> {
+        self.complete_request_fn(response, |_| Ok(success))
     }
 
     pub fn take_request_response(&mut self) -> Option<Result<(), String>> {
@@ -372,11 +351,8 @@ impl Server {
     }
 
     pub fn close(&mut self) {
-        self.connection_data.take();
-        self.connect_rx = None;
-        self.request_pending = false;
-        self.request_response = None;
-        self.client_state = ClientState::Disconnected;
+        // Full reset
+        *self = Self::new();
     }
 
     pub fn game_update(&mut self) -> Option<GameUpdate> {
@@ -389,6 +365,12 @@ impl Server {
 
     pub fn client_id(&self) -> Option<ClientId> {
         self.connection_data.as_ref().map(|c| c.client_id)
+    }
+
+    pub fn assert_state(&self, state: ClientState) {
+        if self.client_state != state {
+            panic!("Server is in invalid state.");
+        }
     }
 }
 

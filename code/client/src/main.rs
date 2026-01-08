@@ -1,4 +1,3 @@
-#![allow(dead_code)] // For development
 use app::App;
 use macroquad::miniquad::conf::Icon;
 use macroquad::prelude::*;

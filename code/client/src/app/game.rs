@@ -4,117 +4,14 @@ use common::{
 };
 
 use crate::{
+    app::feeds::{MainFeed, SideFeed},
     server::Server,
-    ui::theme::{DARK_BG, GRID_COLOR, NEON_CYAN, NEON_PINK, WALL_COLOR, WALL_OUTLINE},
     ui::{
-        CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_MID, TEXT_SMALL, Text,
-        TextHorizontalPositioning, TextVerticalPositioning, calc_transform, default_text_params,
+        TEXT_SMALL, Text, calc_transform,
+        theme::{DARK_BG, GRID_COLOR, NEON_CYAN, NEON_PINK, WALL_COLOR, WALL_OUTLINE},
     },
 };
 use macroquad::prelude::*;
-
-struct MainFeed {
-    text: String,
-}
-
-impl MainFeed {
-    fn new() -> Self {
-        Self {
-            text: String::new(),
-        }
-    }
-
-    fn set(&mut self, text: String) {
-        self.text = text;
-    }
-
-    fn draw(&self) {
-        Text::new_scaled(TEXT_MID).draw(&self.text, CANONICAL_SCREEN_MID_X, 50.);
-    }
-}
-
-struct FeedElement {
-    text: String,
-    active_time: f64,
-    time_start: Option<f64>,
-    is_active: bool,
-}
-
-impl FeedElement {
-    fn new(text: String, expire_time: f64) -> Self {
-        Self {
-            text,
-            time_start: None,
-            active_time: expire_time,
-            is_active: true,
-        }
-    }
-
-    fn update(&mut self, time: f64) {
-        match self.time_start {
-            None => {
-                self.time_start = Some(time);
-            }
-            Some(time_start) => {
-                if time - time_start >= self.active_time {
-                    self.is_active = false;
-                }
-            }
-        }
-    }
-
-    fn is_active(&self) -> bool {
-        self.is_active
-    }
-}
-
-struct SideFeed {
-    events: Vec<FeedElement>,
-    display_time: f64,
-    max_display: u8,
-}
-
-impl SideFeed {
-    fn new(display_time: f64, max_display: u8) -> Self {
-        Self {
-            events: Vec::new(),
-            display_time,
-            max_display,
-        }
-    }
-
-    fn add(&mut self, text: String) {
-        self.events.push(FeedElement::new(text, self.display_time));
-    }
-
-    fn draw(&self) {
-        let x = 20.;
-        let mut layout = Layout::new(30., 5.);
-
-        let text = Text::new(
-            TextParams {
-                font_size: TEXT_SMALL,
-                ..default_text_params()
-            },
-            TextVerticalPositioning::CenterConsistent,
-            TextHorizontalPositioning::Left,
-        );
-
-        for el in self.events.iter().take(self.max_display as usize) {
-            text.draw(&el.text, x, layout.next());
-            layout.add(10.);
-        }
-    }
-
-    fn update(&mut self) {
-        // Only time the ones that are displayed
-        for el in self.events.iter_mut().take(self.max_display as usize) {
-            el.update(macroquad::time::get_time());
-        }
-
-        self.events.retain(|el| el.is_active());
-    }
-}
 
 pub(crate) struct Game {
     initial_game_info: InitialGameInfo,
@@ -189,7 +86,7 @@ impl Game {
             GameState::Countdown(count) => {
                 format!("Round {} starting in {}...", self.current_round, count)
             }
-            GameState::Battle(_) => String::new(),
+            GameState::Battle(seconds_left) => format!("Time: {}", seconds_left),
             GameState::Results {
                 winner,
                 blue_score,
@@ -376,16 +273,6 @@ impl Game {
             draw_circle(px, py, pr, YELLOW);
         }
 
-        Text::new_scaled(TEXT_SMALL).draw(&get_fps().to_string(), 10., 10.);
-
-        if let GameState::Battle(seconds_left) = self.game_state {
-            Text::new_scaled(TEXT_LARGE).draw(
-                &format!("Time: {}", seconds_left),
-                CANONICAL_SCREEN_MID_X,
-                50.0,
-            );
-        }
-
         self.main_feed.draw();
         self.side_feed.draw();
     }
@@ -396,9 +283,5 @@ impl Game {
 
     pub fn get_game_code(&self) -> &str {
         &self.initial_game_info.game_code.0
-    }
-
-    pub fn get_current_round(&self) -> u8 {
-        self.current_round
     }
 }
