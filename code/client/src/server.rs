@@ -2,7 +2,8 @@ use std::fmt::Debug;
 use std::{mem, net::ToSocketAddrs};
 
 use common::protocol::{
-    API_VERSION, CreateGameResponse, GameUpdate, HandshakeResponse, JoinGameResponse,
+    API_VERSION, CreateGameResponse, GameUpdate, HandshakeResponse, InitialGameInfo,
+    JoinGameResponse,
 };
 use common::{
     codec::{decode_server_message, encode_client_message},
@@ -20,8 +21,6 @@ use renet_netcode::{
     ClientAuthentication, NetcodeClientTransport, NetcodeDisconnectReason, NetcodeError,
     NetcodeTransportError,
 };
-
-use crate::app::game::Game;
 
 enum Request {}
 
@@ -60,6 +59,7 @@ pub(crate) struct Server {
     connect_rx: Option<Receiver<Result<ConnectionData, String>>>,
     last_tick: Instant,
     game_update: Option<GameUpdate>,
+    initial_game_info: Option<InitialGameInfo>,
     pub client_state: ClientState,
     /// If request failed, the client can check why
     request_response: Option<Result<(), String>>,
@@ -76,6 +76,7 @@ impl Server {
             connect_rx: None,
             last_tick: Instant::now(),
             game_update: None,
+            initial_game_info: None,
             client_state: ClientState::Disconnected,
             request_response: None,
             request_pending: false,
@@ -94,76 +95,9 @@ impl Server {
         self.request_pending = true;
 
         std::thread::spawn(move || {
-            let result = Server::connect_blocking(servername, username);
+            let result = connect_blocking(servername, username);
             let _ = tx.send(result);
         });
-    }
-
-    fn connect_blocking(
-        mut servername: String,
-        username: String,
-    ) -> Result<ConnectionData, String> {
-        is_valid_username(&username)?;
-
-        // If no port suffix present, append the 8080 port which is the default for our server
-        if !servername.contains(':') {
-            servername.push_str(":8080");
-        }
-
-        let addrs: Vec<std::net::SocketAddr> = servername
-            .to_socket_addrs()
-            .map_err(|_| "Server not found.".to_string())?
-            .collect();
-        let mut addrs = addrs;
-        // Prefer IPv4 when both families are available (common for "localhost" resolving to ::1 first on Linux).
-        addrs.sort_by_key(|a| if a.is_ipv4() { 0 } else { 1 });
-        let server_addr = addrs
-            .first()
-            .copied()
-            .ok_or("Server not found.".to_string())?;
-
-        let connection_config = ConnectionConfig::default();
-
-        let mut client = RenetClient::new(connection_config);
-
-        // Listen on all interfaces on any port, with the appropriate protocol
-        let socket = if server_addr.is_ipv4() {
-            UdpSocket::bind("0.0.0.0:0")
-        } else {
-            UdpSocket::bind("[::]:0")
-        }
-        .or(Err("Could not establish a connection.".to_string()))?;
-
-        let current_time = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap();
-
-        let client_id = rand::rng().random();
-        // No authentication for now
-        let authentication = ClientAuthentication::Unsecure {
-            client_id,
-            protocol_id: PROTOCOL_ID,
-            server_addr,
-            user_data: None,
-        };
-
-        let transport = NetcodeClientTransport::new(current_time, authentication, socket)
-            .or(Err("Could not establish a connection."))?;
-
-        // Send handshake as the final step. User will wait for server response.
-        let payload = encode_client_message(&ClientMessage::Handshake {
-            api_version: API_VERSION,
-            nickname: username,
-        })
-        .or(Err("Could not send handshake message."))?;
-
-        client.send_message(RELIABLE_CHANNEL_ID, payload);
-
-        Ok(ConnectionData {
-            client,
-            client_id,
-            transport,
-        })
     }
 
     pub fn get_client_id(&self) -> ClientId {
@@ -173,7 +107,7 @@ impl Server {
             .client_id
     }
 
-    pub fn tick(&mut self, ctx: &mut Option<Game>) {
+    pub fn tick(&mut self) {
         if let Some(rx) = &self.connect_rx {
             // Connecting to server has finished
             if let Ok(result) = rx.try_recv() {
@@ -197,12 +131,12 @@ impl Server {
         let dt = now.duration_since(self.last_tick);
         self.last_tick = now;
 
-        if let Err(reason) = self.handle_network(ctx, dt) {
+        if let Err(reason) = self.handle_network(dt) {
             self.client_state = ClientState::Error(reason);
         }
     }
 
-    fn handle_network(&mut self, ctx: &mut Option<Game>, dt: Duration) -> Result<(), String> {
+    fn handle_network(&mut self, dt: Duration) -> Result<(), String> {
         if let Some(mut connection_data) = self.connection_data.take() {
             let result = connection_data
                 .transport
@@ -210,7 +144,7 @@ impl Server {
             self.handle_net_result(result)?;
 
             if connection_data.client.is_connected() {
-                self.process_server_messages(&mut connection_data, ctx)?;
+                self.process_server_messages(&mut connection_data)?;
 
                 let result = connection_data
                     .transport
@@ -246,21 +180,15 @@ impl Server {
     fn process_server_messages(
         &mut self,
         connection_data: &mut ConnectionData,
-        ctx: &mut Option<Game>,
     ) -> Result<(), String> {
         while let Some(message) = connection_data.client.receive_message(RELIABLE_CHANNEL_ID) {
             let server_msg = decode_server_message(&message).or(Err("Invalid server message."))?;
-            self.process_message(server_msg, ctx, connection_data);
+            self.process_message(server_msg);
         }
         Ok(())
     }
 
-    fn process_message(
-        &mut self,
-        server_msg: ServerMessage,
-        ctx: &mut Option<Game>,
-        connection_data: &mut ConnectionData,
-    ) {
+    fn process_message(&mut self, server_msg: ServerMessage) {
         //println!("Got server message: {:?}", server_msg);
         let old_state = mem::replace(&mut self.client_state, ClientState::Disconnected);
         //println!("Client state was before: {:?}", old_state);
@@ -268,7 +196,7 @@ impl Server {
         self.client_state = match old_state {
             ClientState::Disconnected => self.handle_disconnected_state(server_msg),
 
-            ClientState::Connected => self.handle_connected_state(server_msg, ctx, connection_data),
+            ClientState::Connected => self.handle_connected_state(server_msg),
 
             ClientState::Playing => self.handle_playing_state(server_msg),
 
@@ -303,19 +231,12 @@ impl Server {
         }
     }
 
-    fn handle_connected_state(
-        &mut self,
-        server_msg: ServerMessage,
-        ctx: &mut Option<Game>,
-        connection_data: &mut ConnectionData,
-    ) -> ClientState {
+    fn handle_connected_state(&mut self, server_msg: ServerMessage) -> ClientState {
         match server_msg {
             ServerMessage::CreateGameReponse(resp) => match resp {
                 CreateGameResponse::Ok(initial_game_info) => {
-                    // Should resolve to true
-                    let is_host = initial_game_info.game_master == connection_data.client_id;
-                    self.complete_request_fn(Ok(()), || {
-                        *ctx = Some(Game::new(initial_game_info, is_host));
+                    self.complete_request_fn(Ok(()), |server: &mut Server| {
+                        server.initial_game_info = Some(initial_game_info);
                         ClientState::Playing
                     })
                 }
@@ -327,10 +248,8 @@ impl Server {
 
             ServerMessage::JoinGameResponse(resp) => match resp {
                 JoinGameResponse::Ok(initial_game_info) => {
-                    // Will most likely resolve to false
-                    let is_host = initial_game_info.game_master == connection_data.client_id;
-                    self.complete_request_fn(Ok(()), || {
-                        *ctx = Some(Game::new(initial_game_info, is_host));
+                    self.complete_request_fn(Ok(()), |server: &mut Server| {
+                        server.initial_game_info = Some(initial_game_info);
                         ClientState::Playing
                     })
                 }
@@ -423,7 +342,7 @@ impl Server {
     /// Tries to set the request response (if the response is a valid response to some request we made)
     /// on success, returns the success client state
     /// on failure, returns an error state with an appropriate message
-    fn complete_request_fn<F: FnOnce() -> ClientState>(
+    fn complete_request_fn<F: FnOnce(&mut Server) -> ClientState>(
         &mut self,
         response: Result<(), String>,
         success_action: F,
@@ -437,7 +356,7 @@ impl Server {
 
         self.request_response = Some(response);
         self.request_pending = false;
-        success_action()
+        success_action(self)
     }
 
     fn complete_request(
@@ -445,7 +364,7 @@ impl Server {
         response: Result<(), String>,
         success: ClientState,
     ) -> ClientState {
-        self.complete_request_fn(response, || success)
+        self.complete_request_fn(response, |_| success)
     }
 
     pub fn take_request_response(&mut self) -> Option<Result<(), String>> {
@@ -463,4 +382,76 @@ impl Server {
     pub fn game_update(&mut self) -> Option<GameUpdate> {
         self.game_update.take()
     }
+
+    pub fn initial_game_info(&mut self) -> Option<InitialGameInfo> {
+        self.initial_game_info.take()
+    }
+
+    pub fn client_id(&self) -> Option<ClientId> {
+        self.connection_data.as_ref().map(|c| c.client_id)
+    }
+}
+
+fn connect_blocking(mut servername: String, username: String) -> Result<ConnectionData, String> {
+    is_valid_username(&username)?;
+
+    // If no port suffix present, append the 8080 port which is the default for our server
+    if !servername.contains(':') {
+        servername.push_str(":8080");
+    }
+
+    let addrs: Vec<std::net::SocketAddr> = servername
+        .to_socket_addrs()
+        .map_err(|_| "Server not found.".to_string())?
+        .collect();
+    let mut addrs = addrs;
+    // Prefer IPv4 when both families are available (common for "localhost" resolving to ::1 first on Linux).
+    addrs.sort_by_key(|a| if a.is_ipv4() { 0 } else { 1 });
+    let server_addr = addrs
+        .first()
+        .copied()
+        .ok_or("Server not found.".to_string())?;
+
+    let connection_config = ConnectionConfig::default();
+
+    let mut client = RenetClient::new(connection_config);
+
+    // Listen on all interfaces on any port, with the appropriate protocol
+    let socket = if server_addr.is_ipv4() {
+        UdpSocket::bind("0.0.0.0:0")
+    } else {
+        UdpSocket::bind("[::]:0")
+    }
+    .or(Err("Could not establish a connection.".to_string()))?;
+
+    let current_time = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap();
+
+    let client_id = rand::rng().random();
+    // No authentication for now
+    let authentication = ClientAuthentication::Unsecure {
+        client_id,
+        protocol_id: PROTOCOL_ID,
+        server_addr,
+        user_data: None,
+    };
+
+    let transport = NetcodeClientTransport::new(current_time, authentication, socket)
+        .or(Err("Could not establish a connection."))?;
+
+    // Send handshake as the final step. User will wait for server response.
+    let payload = encode_client_message(&ClientMessage::Handshake {
+        api_version: API_VERSION,
+        nickname: username,
+    })
+    .or(Err("Could not send handshake message."))?;
+
+    client.send_message(RELIABLE_CHANNEL_ID, payload);
+
+    Ok(ConnectionData {
+        client,
+        client_id,
+        transport,
+    })
 }

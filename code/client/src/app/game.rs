@@ -142,6 +142,8 @@ impl Game {
     }
 
     pub fn update(&mut self, game_update: GameUpdate, server: &mut Server) {
+        let old_round = self.current_round;
+
         self.game_engine.apply_snapshot(game_update.snapshot.engine);
         self.game_state = game_update.snapshot.state;
         self.is_host = game_update.snapshot.game_master == server.get_client_id();
@@ -152,7 +154,7 @@ impl Game {
             match event {
                 GameEvent::RoundEnded(winner) => self.side_feed.add(format!(
                     "Round {} ended. Winner is {:?}!",
-                    self.current_round, winner
+                    old_round, winner
                 )),
 
                 GameEvent::RoundStarted => self

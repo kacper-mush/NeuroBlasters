@@ -9,6 +9,7 @@ use macroquad::prelude::*;
 
 const TIME_TO_SHOW_ABORT: f64 = 5.;
 const TIME_TO_SHOW_BEFORE_ACTION: f64 = 0.7;
+pub(crate) type RequestAction = Box<dyn FnOnce(&mut AppContext) -> Transition>;
 
 // TODO: move it to somewhere nice :)
 struct Timer {
@@ -31,30 +32,47 @@ impl Timer {
 
 pub(crate) struct RequestView {
     text: String,
-    success_view: Option<Box<dyn View>>,
-    success_transition: Option<Transition>,
+    success_action: Option<RequestAction>,
     abort_clicked: bool,
     abort_show_timer: Timer,
     time_to_show_timer: Timer,
 }
 
 impl RequestView {
-    pub fn new(text: String, success_view: Option<Box<dyn View>>) -> Self {
+    pub fn new_open_view(text: String, success_view: Box<dyn View>) -> Self {
         RequestView {
             text,
-            success_view,
-            success_transition: None,
+            success_action: Some(Box::new(|_| Transition::PopAnd(success_view))),
             abort_clicked: false,
             abort_show_timer: Timer::new(TIME_TO_SHOW_ABORT),
             time_to_show_timer: Timer::new(TIME_TO_SHOW_BEFORE_ACTION),
         }
     }
 
-    pub fn new_with_transition(text: String, success_transition: Transition) -> Self {
+    pub fn new_simple(text: String) -> Self {
         RequestView {
             text,
-            success_view: None,
-            success_transition: Some(success_transition),
+            success_action: Some(Box::new(|_| Transition::Pop)),
+            abort_clicked: false,
+            abort_show_timer: Timer::new(TIME_TO_SHOW_ABORT),
+            time_to_show_timer: Timer::new(TIME_TO_SHOW_BEFORE_ACTION),
+        }
+    }
+
+    pub fn new_transition(text: String, success_transition: Transition) -> Self {
+        RequestView {
+            text,
+            success_action: Some(Box::new(|_| success_transition)),
+            abort_clicked: false,
+            abort_show_timer: Timer::new(TIME_TO_SHOW_ABORT),
+            time_to_show_timer: Timer::new(TIME_TO_SHOW_BEFORE_ACTION),
+        }
+    }
+
+    pub fn new_action(text: String, success_action: RequestAction) -> Self {
+        RequestView {
+            text,
+            success_action: Some(success_action),
             abort_clicked: false,
             abort_show_timer: Timer::new(TIME_TO_SHOW_ABORT),
             time_to_show_timer: Timer::new(TIME_TO_SHOW_BEFORE_ACTION),
@@ -101,16 +119,8 @@ impl View for RequestView {
         if let Some(resp) = ctx.server.take_request_response() {
             return match resp {
                 // Request was successful
-                Ok(_) => match self.success_view.take() {
-                    // Our parent requested to go to another view on success
-                    Some(view) => Transition::PopAnd(view),
-                    // No custom view to go, maybe a custom transition?
-                    None => match self.success_transition.take() {
-                        Some(transition) => transition,
-                        // No view or transition, so we just pop ourselves
-                        None => Transition::Pop,
-                    },
-                },
+                Ok(_) => self.success_action.take().unwrap()(ctx),
+
                 // Request failed: show the reason why
                 Err(reason) => Transition::PopAnd(Box::new(Popup::new(reason))),
             };
