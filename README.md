@@ -1,10 +1,10 @@
-# NeuroBlasters 🎮
+<p align="center">
+  <img src="assets/banner.png" alt="NeuroBlasters Banner" width=800>
+</p>
 
 **A multiplayer 2D top-down tank shooter with AI-powered bots**
 
 *Authors: Marcin Rolbiecki, Mateusz Kasprzak, Kacper Grzybowski*
-
-![NeuroBlasters Banner](assets/banner.png)
 
 ---
 
