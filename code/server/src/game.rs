@@ -19,6 +19,8 @@ pub struct Game {
     inputs: HashMap<PlayerId, InputPayload>,
     curr_round: u8,
     total_rounds: u8,
+    blue_wins: u8,
+    red_wins: u8,
     map: MapName,
     pub outgoing_events: Vec<GameEvent>,
 }
@@ -33,6 +35,8 @@ impl Game {
             inputs: HashMap::new(),
             curr_round: 1,
             total_rounds: rounds,
+            blue_wins: 0,
+            red_wins: 0,
             map,
             outgoing_events: Vec::new(),
         }
@@ -62,7 +66,15 @@ impl Game {
             GameState::Waiting => GameStateInfo::Waiting,
             GameState::Countdown(countdown) => GameStateInfo::Countdown(countdown.seconds_left()),
             GameState::Battle(countdown) => GameStateInfo::Battle(countdown.seconds_left()),
-            GameState::Results(winner) => GameStateInfo::Results(*winner),
+            GameState::Results {
+                winner,
+                blue_score,
+                red_score,
+            } => GameStateInfo::Results {
+                winner: *winner,
+                blue_score: *blue_score,
+                red_score: *red_score,
+            },
         }
     }
 
@@ -109,10 +121,13 @@ impl Game {
         };
         let input = match self.state {
             GameState::Battle(_) => input,
-            GameState::Waiting | GameState::Countdown(_) | GameState::Results(_) => InputPayload {
-                shoot: false,
-                ..input
-            },
+            // Countdown/Waiting/Results: movement/aim is allowed, shooting is not.
+            GameState::Waiting | GameState::Countdown(_) | GameState::Results { .. } => {
+                InputPayload {
+                    shoot: false,
+                    ..input
+                }
+            }
         };
         self.inputs.insert(*player_id, input);
     }
@@ -152,18 +167,39 @@ impl Game {
                 }
 
                 if let Some(winner) = winner {
+                    // Increment the winning team's score
+                    match winner {
+                        common::protocol::Team::Blue => self.blue_wins += 1,
+                        common::protocol::Team::Red => self.red_wins += 1,
+                    }
+
                     self.outgoing_events.push(GameEvent::RoundEnded(winner));
                     self.curr_round += 1;
                     if self.curr_round <= self.total_rounds {
                         self.state = GameState::Countdown(Countdown::default());
                     } else {
-                        self.state = GameState::Results(winner);
+                        // End of match: determine overall winner based on best-of-N
+                        let overall_winner = if self.blue_wins > self.red_wins {
+                            common::protocol::Team::Blue
+                        } else {
+                            common::protocol::Team::Red
+                        };
+
+                        self.state = GameState::Results {
+                            winner: overall_winner,
+                            blue_score: self.blue_wins,
+                            red_score: self.red_wins,
+                        };
+                        // Clear any remaining projectiles so no post-match kills happen.
                         self.engine.clear_projectiles();
                     }
                 }
             }
             GameState::Waiting => {}
-            GameState::Results(_winner) => {}
+            GameState::Results { .. } => {
+                // Stay in Results; GameEngine still ticks (movement/aim allowed),
+                // but inputs are already clamped to shoot=false in handle_player_input.
+            }
         }
     }
 
@@ -200,7 +236,11 @@ enum GameState {
     Waiting,
     Countdown(Countdown),
     Battle(Countdown),
-    Results(Team),
+    Results {
+        winner: common::protocol::Team,
+        blue_score: u8,
+        red_score: u8,
+    },
 }
 
 #[cfg(test)]
@@ -482,7 +522,7 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, GameEvent::RoundEnded(_)))
         );
-        assert!(matches!(g.game_state_info(), GameStateInfo::Results(_)));
+        assert!(matches!(g.game_state_info(), GameStateInfo::Results { .. }));
 
         // Winner remains true on subsequent ticks; this must NOT underflow rounds_left or emit more RoundEnded.
         g.outgoing_events.clear();
@@ -492,5 +532,74 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, GameEvent::RoundEnded(_)))
         );
+    }
+
+    #[test]
+    fn best_of_n_tracks_scores_and_determines_correct_winner() {
+        let master: ClientId = 1;
+        let mut g = Game::new(master, MapName::Basic, 3);
+
+        // Force battle state
+        g.state = GameState::Battle(Countdown::default());
+
+        // Round 1: Red wins
+        g.engine.apply_snapshot(EngineSnapshot {
+            tanks: vec![Tank::new(
+                PlayerInfo::new(0, "red_player".into(), common::protocol::Team::Red),
+                Vec2::ZERO,
+            )],
+            projectiles: Vec::new(),
+        });
+        g.tick(0.0);
+        assert_eq!(g.blue_wins, 0);
+        assert_eq!(g.red_wins, 1);
+        assert!(matches!(g.game_state_info(), GameStateInfo::Countdown(_)));
+
+        // Transition to battle for round 2
+        g.tick(6.0);
+        assert!(matches!(g.game_state_info(), GameStateInfo::Battle(_)));
+
+        // Round 2: Blue wins
+        g.engine.apply_snapshot(EngineSnapshot {
+            tanks: vec![Tank::new(
+                PlayerInfo::new(1, "blue_player".into(), common::protocol::Team::Blue),
+                Vec2::ZERO,
+            )],
+            projectiles: Vec::new(),
+        });
+        g.tick(0.0);
+        assert_eq!(g.blue_wins, 1);
+        assert_eq!(g.red_wins, 1);
+        assert!(matches!(g.game_state_info(), GameStateInfo::Countdown(_)));
+
+        // Transition to battle for round 3
+        g.tick(6.0);
+        assert!(matches!(g.game_state_info(), GameStateInfo::Battle(_)));
+
+        // Round 3: Red wins (Red wins 2-1)
+        g.engine.apply_snapshot(EngineSnapshot {
+            tanks: vec![Tank::new(
+                PlayerInfo::new(0, "red_player".into(), common::protocol::Team::Red),
+                Vec2::ZERO,
+            )],
+            projectiles: Vec::new(),
+        });
+        g.tick(0.0);
+        assert_eq!(g.blue_wins, 1);
+        assert_eq!(g.red_wins, 2);
+
+        // Verify final Results state has correct winner and scores
+        match g.game_state_info() {
+            GameStateInfo::Results {
+                winner,
+                blue_score,
+                red_score,
+            } => {
+                assert_eq!(winner, common::protocol::Team::Red);
+                assert_eq!(blue_score, 1);
+                assert_eq!(red_score, 2);
+            }
+            _ => panic!("Expected Results state"),
+        }
     }
 }
