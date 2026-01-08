@@ -10,12 +10,11 @@ use rand::{Rng, SeedableRng};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BotDifficulty {
-    Dummy,         // Does nothing
-    Turret,        // Static, shoots when he sees you
-    Wanderer,      // Moves randomly, shoots
-    Hunter,        // Hunts you down
-    Terminator,    // Hunts you down but better
-    TrainedKiller, // Neural Network (RL bot)
+    Dummy,      // Does nothing
+    Turret,     // Static, shoots when he sees you
+    Wanderer,   // Moves randomly, shoots
+    Hunter,     // Hunts you down
+    Terminator, // Hunts you down but better
 }
 
 /// Everything a bot is allowed to know to make a decision.
@@ -74,7 +73,6 @@ impl BotAgent {
             BotDifficulty::Terminator => {
                 Box::new(ScriptedPolicy::new(ScriptedBehavior::Terminator))
             }
-            BotDifficulty::TrainedKiller => Box::new(RlPolicy::default()),
         };
 
         Self {
@@ -453,24 +451,6 @@ struct DummyPolicy;
 impl Policy for DummyPolicy {
     fn compute_input(&mut self, _ctx: &mut BotContext) -> InputPayload {
         // Literally do nothing
-        InputPayload {
-            move_axis: Vec2::ZERO,
-            aim_pos: Vec2::ZERO,
-            shoot: false,
-        }
-    }
-}
-
-// ---  RL Policy (Mocked) ---
-
-#[derive(Default, Clone)]
-struct RlPolicy {
-    // Future: This will hold your 'burn' model
-}
-
-impl Policy for RlPolicy {
-    fn compute_input(&mut self, _ctx: &mut BotContext) -> InputPayload {
-        // For now, it just mocks a Dummy
         InputPayload {
             move_axis: Vec2::ZERO,
             aim_pos: Vec2::ZERO,

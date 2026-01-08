@@ -193,6 +193,12 @@ NeuroBlasters/
 - **Enhanced VFX**: Particle effects and animations
 - **Bring-Your-Own-AI**: Use custom-trained AI in multiplayer matches
 
+## AI notes
+- **AI-trainer**: UI does not support the AI training for now (only plaing against it or spectating). You can train the AI with RL algorithm using the trainer.
+- **RL**: There are example bots (971-1000.bin are last 30 generations of the RL I was training for a few hours)
+- **Multiplayer**: For now RL is not supported in multiplayer games - only in local trainer mode.
+- **Notice that GPU-acceleration is needed for any RL-related stuff!!**
+
 ---
 
 **Enjoy the game! 🚀**

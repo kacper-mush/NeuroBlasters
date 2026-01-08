@@ -48,7 +48,7 @@ pub struct Projectile {
     pub radius: f32,
 }
 
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode, Default)]
 pub struct InputPayload {
     #[bincode(with_serde)]
     pub move_axis: Vec2,

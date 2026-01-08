@@ -1,5 +1,5 @@
 use super::{
-    apply_player_physics, check_round_winner, handle_shooting, resolve_combat,
+    DamageEvent, apply_player_physics, check_round_winner, handle_shooting, resolve_combat,
     resolve_player_collisions, update_projectiles,
 };
 use crate::ai::{BotAgent, BotDifficulty};
@@ -12,17 +12,18 @@ use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct GameEngine {
-    tanks: Vec<Tank>,
-    projectiles: Vec<Projectile>,
-    map: MapDefinition,
-    humans: Vec<PlayerInfo>,
-    bots: Vec<BotAgent>,
-    next_player_id: PlayerId,
-    projectile_id_counter: u64,
+    pub tanks: Vec<Tank>,
+    pub projectiles: Vec<Projectile>,
+    pub map: MapDefinition,
+    pub humans: Vec<PlayerInfo>,
+    pub bots: Vec<BotAgent>,
+    pub next_player_id: PlayerId,
+    pub projectile_id_counter: u64,
 }
 
 pub struct GameTickResult {
     pub kills: Vec<KillEvent>,
+    pub damage: Vec<DamageEvent>,
     pub winner: Option<Team>,
 }
 
@@ -111,10 +112,14 @@ impl GameEngine {
 
         // Resolve Combat (Projectiles hitting Players)
         // This function modifies health, removes dead players/bullets, and returns KillEvents.
-        let kills = resolve_combat(&mut self.tanks, &mut self.projectiles);
+        let (kills, damage) = resolve_combat(&mut self.tanks, &mut self.projectiles);
         let winner = check_round_winner(&self.tanks);
 
-        GameTickResult { kills, winner }
+        GameTickResult {
+            kills,
+            damage,
+            winner,
+        }
     }
 
     pub fn prepare_new_round(&mut self) {

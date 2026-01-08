@@ -100,6 +100,13 @@ pub fn is_position_safe(pos: Vec2, radius: f32, map: &MapDefinition) -> bool {
     true
 }
 
+#[derive(Clone, Debug)]
+pub struct DamageEvent {
+    pub attacker_id: crate::net::protocol::PlayerId,
+    pub victim_id: crate::net::protocol::PlayerId,
+    pub amount: f32,
+}
+
 // --- Main Physics Logic ---
 
 pub fn apply_player_physics(player: &mut Tank, input: &InputPayload, map: &MapDefinition, dt: f32) {
@@ -202,16 +209,14 @@ pub fn handle_shooting(
 pub fn resolve_combat(
     players: &mut Vec<Tank>,
     projectiles: &mut Vec<Projectile>,
-) -> Vec<KillEvent> {
+) -> (Vec<KillEvent>, Vec<DamageEvent>) {
     let mut kills = Vec::new();
+    let mut damage_events = Vec::new();
 
-    // 1. Process Projectile Collisions
-    // We use retain() to filter out bullets that hit something.
     projectiles.retain(|proj| {
         let mut hit_someone = false;
 
         for player in players.iter_mut() {
-            // Simple Circle-Circle Collision
             let dist_sq = player.position.distance_squared(proj.position);
             let sum_radii = player.radius + proj.radius;
 
@@ -219,8 +224,14 @@ pub fn resolve_combat(
                 // COLLISION DETECTED
                 player.health -= PROJECTILE_DAMAGE;
 
-                // Check for death immediately (so we know who killed them)
-                // We mark them as "dead" here, but remove them in step 2.
+                // --- NEW: Record the damage event ---
+                damage_events.push(DamageEvent {
+                    attacker_id: proj.owner_info.id,
+                    victim_id: player.player_info.id,
+                    amount: PROJECTILE_DAMAGE,
+                });
+                // ------------------------------------
+
                 if player.health <= 0.0 {
                     kills.push(KillEvent {
                         killer_info: proj.owner_info.clone(),
@@ -229,18 +240,16 @@ pub fn resolve_combat(
                 }
 
                 hit_someone = true;
-                break; // Bullet hits the first player it touches, then disappears
+                break;
             }
         }
 
-        !hit_someone // Keep the bullet if it DID NOT hit anyone
+        !hit_someone
     });
 
-    // 2. Remove Dead Players
-    // We only keep players who are still alive (health > 0).
     players.retain(|p| p.health > 0.0);
 
-    kills
+    (kills, damage_events)
 }
 
 /// Resolves collisions between players (prevent overlapping).
@@ -400,8 +409,8 @@ mod tests {
             radius: 5.0,
         }];
 
-        // Run Logic
-        let kills = resolve_combat(&mut players, &mut projectiles);
+        //     // Run Logic
+        let (kills, _) = resolve_combat(&mut players, &mut projectiles);
 
         // Assertions
         assert_eq!(kills.len(), 1, "Should generate 1 kill event");
