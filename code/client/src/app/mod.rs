@@ -105,14 +105,8 @@ impl App {
 
     pub async fn run(&mut self) {
         while !self.stack.is_empty() {
-            if let Err(e) = self.context.server.tick(&mut self.context.game) {
-                // Simple for now
-                eprintln!(
-                    "A network problem occured while handling server connection:\n {:?}",
-                    e
-                );
-                self.context.server.close(); // Something is wrong, close the server
-            }
+            self.context.server.tick(&mut self.context.game);
+
             // We only run update for the state on top of the stack
             let transition = self.stack.last_mut().unwrap().update(&mut self.context);
 

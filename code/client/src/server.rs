@@ -14,10 +14,13 @@ use rand::Rng;
 use std::sync::mpsc::Receiver;
 
 use std::net::UdpSocket;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
-use renet::{ClientId, ConnectionConfig, RenetClient};
-use renet_netcode::{ClientAuthentication, NetcodeClientTransport};
+use renet::{ClientId, ConnectionConfig, DisconnectReason, RenetClient};
+use renet_netcode::{
+    ClientAuthentication, NetcodeClientTransport, NetcodeDisconnectReason, NetcodeError,
+    NetcodeTransportError,
+};
 
 use crate::app::game::Game;
 
@@ -171,7 +174,7 @@ impl Server {
             .client_id
     }
 
-    pub fn tick(&mut self, ctx: &mut Option<Game>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn tick(&mut self, ctx: &mut Option<Game>) {
         if let Some(rx) = &self.connect_rx {
             // Connecting to server has finished
             if let Ok(result) = rx.try_recv() {
@@ -195,30 +198,59 @@ impl Server {
         let dt = now.duration_since(self.last_tick);
         self.last_tick = now;
 
+        if let Err(reason) = self.handle_network(ctx, dt) {
+            self.client_state = ClientState::Error(reason);
+        }
+    }
+
+    fn handle_network(&mut self, ctx: &mut Option<Game>, dt: Duration) -> Result<(), String> {
         if let Some(mut connection_data) = self.connection_data.take() {
-            connection_data
+            let result = connection_data
                 .transport
-                .update(dt, &mut connection_data.client)?;
+                .update(dt, &mut connection_data.client);
+            self.handle_net_result(result)?;
 
             if connection_data.client.is_connected() {
                 self.process_server_messages(&mut connection_data, ctx)?;
-                connection_data
+
+                let result = connection_data
                     .transport
-                    .send_packets(&mut connection_data.client)?;
+                    .send_packets(&mut connection_data.client);
+                self.handle_net_result(result)?;
             }
             self.connection_data = Some(connection_data);
         }
-
         Ok(())
+    }
+
+    fn handle_net_result(
+        &mut self,
+        result: Result<(), NetcodeTransportError>,
+    ) -> Result<(), String> {
+        if let Err(transport_error) = result {
+            eprintln!("Server errror: {}", transport_error);
+            let default = Err("Network connection failed.".into());
+            match transport_error {
+                NetcodeTransportError::Renet(DisconnectReason::DisconnectedByServer) => {
+                    Err("Server closed connection.".into())
+                }
+                NetcodeTransportError::Netcode(NetcodeError::Disconnected(
+                    NetcodeDisconnectReason::DisconnectedByServer,
+                )) => Err("Server closed connection.".into()),
+                _ => default,
+            }
+        } else {
+            Ok(())
+        }
     }
 
     fn process_server_messages(
         &mut self,
         connection_data: &mut ConnectionData,
         ctx: &mut Option<Game>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), String> {
         while let Some(message) = connection_data.client.receive_message(RELIABLE_CHANNEL_ID) {
-            let server_msg = decode_server_message(&message)?;
+            let server_msg = decode_server_message(&message).or(Err("Invalid server message."))?;
             self.process_message(server_msg, ctx, connection_data);
         }
         Ok(())
