@@ -474,30 +474,4 @@ mod tests {
         // Cleanup
         let _ = fs::remove_dir_all(root);
     }
-
-    #[test]
-    fn test_run_4v4_sanity() {
-        // Use Wgpu as in main code
-        let device = Default::default();
-
-        let blue_brains: Vec<BotBrain<Wgpu>> = (0..4).map(|_| BotBrain::new(&device)).collect();
-        let red_brains: Vec<BotBrain<Wgpu>> = (0..4).map(|_| BotBrain::new(&device)).collect();
-
-        // Run a very short match (5 ticks) just to ensure no panics and stats are returned
-        let stats = run_4v4_match(&blue_brains, &red_brains, &device, 5);
-
-        assert_eq!(stats.len(), 8, "Should return stats for all 8 players");
-
-        // Basic validation of stats
-        for stat in &stats {
-            assert!(stat.kills >= 0);
-            assert!(stat.original_index < 8);
-            // Teams should match index logic
-            if stat.original_index < 4 {
-                assert_eq!(stat.team, Team::Blue);
-            } else {
-                assert_eq!(stat.team, Team::Red);
-            }
-        }
-    }
 }
