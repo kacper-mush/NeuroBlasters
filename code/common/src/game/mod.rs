@@ -398,8 +398,8 @@ mod tests {
             Tank::new(infos[1].clone(), Vec2::new(200.0, 200.0)),
         ];
 
-            // Give Player 2 low health so they die in one hit
-            players[1].health = 5.0;
+        // Give Player 2 low health so they die in one hit
+        players[1].health = 5.0;
 
         let mut projectiles = vec![Projectile {
             id: 99,
@@ -410,7 +410,7 @@ mod tests {
         }];
 
         //     // Run Logic
-            let (kills, _) = resolve_combat(&mut players, &mut projectiles);
+        let (kills, _) = resolve_combat(&mut players, &mut projectiles);
 
         // Assertions
         assert_eq!(kills.len(), 1, "Should generate 1 kill event");
@@ -420,10 +420,10 @@ mod tests {
         assert_eq!(players.len(), 1, "Dead player should be removed from list");
         assert_eq!(players[0].player_info.id, 1, "Survivor should be Player 1");
 
-            assert!(
-                projectiles.is_empty(),
-                "Bullet should be destroyed on impact"
-            );
+        assert!(
+            projectiles.is_empty(),
+            "Bullet should be destroyed on impact"
+        );
     }
 
     #[test]

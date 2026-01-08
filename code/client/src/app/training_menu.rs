@@ -62,10 +62,11 @@ impl TrainingMenu {
             for entry in entries.flatten() {
                 if let Ok(ft) = entry.file_type()
                     && ft.is_file()
-                        && let Some(fname) = entry.file_name().to_str()
-                            && fname.ends_with(".bin") {
-                                files.push(fname.to_string());
-                            }
+                    && let Some(fname) = entry.file_name().to_str()
+                    && fname.ends_with(".bin")
+                {
+                    files.push(fname.to_string());
+                }
             }
         }
         files.sort();
@@ -412,13 +413,14 @@ impl View for TrainingMenu {
                     // Culling: Only draw if roughly in view
                     let item_y = list_layout.next();
                     // Draw if the item is at least partially visible
-                    if item_y + BUTTON_H > list_start_y && item_y < list_end_y
+                    if item_y + BUTTON_H > list_start_y
+                        && item_y < list_end_y
                         && Button::default()
                             .draw_centered(x_mid, item_y, BUTTON_W * 1.5, BUTTON_H, Some(file))
                             .poll()
-                        {
-                            picked_file = Some(file.clone());
-                        }
+                    {
+                        picked_file = Some(file.clone());
+                    }
                     list_layout.add(BUTTON_H);
                 }
 
