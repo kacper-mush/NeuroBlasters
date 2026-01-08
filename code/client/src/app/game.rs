@@ -5,6 +5,7 @@ use common::{
 
 use crate::{
     server::Server,
+    ui::theme::{DARK_BG, GRID_COLOR, NEON_CYAN, NEON_PINK, WALL_COLOR, WALL_OUTLINE},
     ui::{
         CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_MID, TEXT_SMALL, Text,
         TextHorizontalPositioning, TextVerticalPositioning, calc_transform, default_text_params,
@@ -230,7 +231,7 @@ impl Game {
     }
 
     pub fn draw(&self) {
-        clear_background(LIGHTGRAY);
+        clear_background(DARK_BG);
 
         let map = self.game_engine.map();
         let (scaling, x_offset, y_offset) = calc_transform(map.width, map.height);
@@ -238,99 +239,130 @@ impl Game {
         let transform_y = |y: f32| y * scaling + y_offset;
         let scale = |dim: f32| dim * scaling;
 
-        // Draw map space
-        draw_rectangle(
-            transform_x(0.),
-            transform_y(0.),
-            scale(map.width),
-            scale(map.height),
-            GRAY,
-        );
-
-        // Draw Map
-        for wall in &map.walls {
-            draw_rectangle(
-                transform_x(wall.min.x),
-                transform_y(wall.min.y),
-                scale(wall.max.x - wall.min.x),
-                scale(wall.max.y - wall.min.y),
-                BLACK,
+        // Draw Grid
+        let grid_size = 50.0;
+        let mut x = 0.0;
+        while x <= map.width {
+            let screen_x = transform_x(x);
+            draw_line(
+                screen_x,
+                transform_y(0.0),
+                screen_x,
+                transform_y(map.height),
+                1.0,
+                GRID_COLOR,
             );
+            x += grid_size;
+        }
+        let mut y = 0.0;
+        while y <= map.height {
+            let screen_y = transform_y(y);
+            draw_line(
+                transform_x(0.0),
+                screen_y,
+                transform_x(map.width),
+                screen_y,
+                1.0,
+                GRID_COLOR,
+            );
+            y += grid_size;
+        }
+
+        // Draw Map Walls
+        for wall in &map.walls {
+            let wx = transform_x(wall.min.x);
+            let wy = transform_y(wall.min.y);
+            let ww = scale(wall.max.x - wall.min.x);
+            let wh = scale(wall.max.y - wall.min.y);
+
+            draw_rectangle(wx, wy, ww, wh, WALL_COLOR);
+            draw_rectangle_lines(wx, wy, ww, wh, 2.0, WALL_OUTLINE);
         }
 
         for tank in self.game_engine.tanks() {
-            draw_circle(
-                transform_x(tank.position.x),
-                transform_y(tank.position.y),
-                scale(tank.radius),
-                if tank.player_info.team == Team::Blue {
-                    BLUE
-                } else {
-                    RED
-                },
-            );
+            let px = transform_x(tank.position.x);
+            let py = transform_y(tank.position.y);
+            let pr = scale(tank.radius);
+
+            let (main_color, glow_color) = if tank.player_info.team == Team::Blue {
+                (NEON_CYAN, Color::new(0.0, 1.0, 1.0, 0.2))
+            } else {
+                (NEON_PINK, Color::new(1.0, 0.0, 1.0, 0.2))
+            };
+
+            // Glow
+            draw_circle(px, py, pr * 1.5, glow_color);
+            // Main Body
+            draw_circle(px, py, pr, main_color);
+            // Inner Core
+            draw_circle(px, py, pr * 0.5, BLACK);
 
             if tank.player_info.id == self.initial_game_info.player_id {
                 // Outline our player
-                draw_circle_lines(
-                    transform_x(tank.position.x),
-                    transform_y(tank.position.y),
-                    scale(tank.radius),
-                    scale(5.),
-                    if tank.player_info.team == Team::Blue {
-                        RED
-                    } else {
-                        BLUE
-                    },
-                );
+                draw_circle_lines(px, py, pr + 3.0, 2.0, WHITE);
             }
 
+            // Direction indicator (Laser sight style)
             let aim_dir = Vec2::new(tank.rotation.cos(), tank.rotation.sin());
             draw_line(
-                transform_x(tank.position.x),
-                transform_y(tank.position.y),
-                transform_x(tank.position.x + aim_dir.x * 30.0),
-                transform_y(tank.position.y + aim_dir.y * 30.0),
-                scale(3.0),
-                RED,
+                px,
+                py,
+                px + aim_dir.x * scale(40.0),
+                py + aim_dir.y * scale(40.0),
+                2.0,
+                main_color,
             );
 
             // Display health bar
-            let (hb_w, hb_h) = (50., 10.);
+            let (hb_w, hb_h) = (50., 6.);
 
+            let hb_x = transform_x(tank.position.x - hb_w / 2.);
+            let hb_y = transform_y(tank.position.y - tank.radius - hb_h - 15.);
+
+            // Health bar background
             draw_rectangle(
-                transform_x(tank.position.x - hb_w / 2.),
-                transform_y(tank.position.y - tank.radius - hb_h - 10.),
+                hb_x,
+                hb_y,
                 scale(hb_w),
                 scale(hb_h),
-                DARKGRAY,
+                Color::new(0.1, 0.1, 0.1, 0.8),
             );
 
-            // Hardcoded max health
+            // Health bar fill
             let health_percentage = tank.health / 100.;
+            let health_color = if health_percentage > 0.5 {
+                GREEN
+            } else if health_percentage > 0.25 {
+                YELLOW
+            } else {
+                RED
+            };
+
             draw_rectangle(
-                transform_x(tank.position.x - hb_w / 2.),
-                transform_y(tank.position.y - tank.radius - hb_h - 10.),
+                hb_x,
+                hb_y,
                 scale(hb_w * health_percentage),
                 scale(hb_h),
-                GREEN,
+                health_color,
             );
 
             // Draw nick
             Text::new_simple(TEXT_SMALL, scaling).draw_no_scaling(
                 &tank.player_info.nickname,
                 transform_x(tank.position.x),
-                transform_y(tank.position.y - tank.radius - hb_h - 30.),
+                transform_y(tank.position.y - tank.radius - hb_h - 35.),
             );
         }
 
         for projectile in self.game_engine.projectiles() {
-            draw_circle(
-                transform_x(projectile.position.x),
-                transform_y(projectile.position.y),
-                scale(projectile.radius),
-                YELLOW,
-            )
+            let px = transform_x(projectile.position.x);
+            let py = transform_y(projectile.position.y);
+            let pr = scale(projectile.radius);
+
+            // Projectile Glow
+            draw_circle(px, py, pr * 2.0, Color::new(1.0, 1.0, 0.0, 0.3));
+            // Projectile Core
+            draw_circle(px, py, pr, YELLOW);
         }
 
         Text::new_scaled(TEXT_SMALL).draw(&get_fps().to_string(), 10., 10.);
