@@ -34,7 +34,7 @@ impl View for GameView {
             }
         }
 
-        let game = ctx.game.as_mut().expect("Game context must be present.");
+        let game = ctx.game.as_mut().expect("Game must be present.");
 
         if let Some(update) = ctx.server.game_update() {
             game.update(update, &mut ctx.server);
@@ -52,14 +52,11 @@ impl View for GameView {
     }
 
     fn shadow_update(&mut self, ctx: &mut AppContext) {
-        // If the server is present, we update game state so that the game doesn't
-        // freeze even if it is overlayed.
-        // If the server is not present, that's fine, because the app frame above us
-        // should handle that, or we will when we come back to focus.
+        // Update if in good state, and if in a bad state - it will be handled by the view above us
         if let ClientState::Playing = &mut ctx.server.client_state
             && let Some(update) = ctx.server.game_update()
         {
-            let game = ctx.game.as_mut().expect("Game context must be present.");
+            let game = ctx.game.as_mut().expect("Game must be present.");
             game.update(update, &mut ctx.server);
         }
     }

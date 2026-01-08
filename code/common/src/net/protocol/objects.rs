@@ -90,8 +90,12 @@ pub struct EngineSnapshot {
 pub enum GameState {
     Waiting,
     Countdown(u64),
-    Battle,
-    Results(Team),
+    Battle(u64),
+    Results {
+        winner: Team,
+        blue_score: u8,
+        red_score: u8,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]

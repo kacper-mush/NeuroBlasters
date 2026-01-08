@@ -10,7 +10,7 @@ use tokio::time::{self, Duration, MissedTickBehavior};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
-const TICK_INTERVAL: Duration = Duration::from_micros(33_333); // ≈30 Hz
+const TICK_INTERVAL: Duration = Duration::from_micros(16_666); // ≈60 Hz
 
 type AppResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
