@@ -20,7 +20,7 @@ impl Popup {
 }
 
 impl View for Popup {
-    fn draw(&mut self, _ctx: &AppContext) {
+    fn draw(&mut self, _ctx: &AppContext, has_input: bool) {
         let x_mid = CANONICAL_SCREEN_MID_X;
         let y_mid = CANONICAL_SCREEN_MID_Y;
         let mut layout = Layout::new(y_mid - 50., 30.);
@@ -38,7 +38,14 @@ impl View for Popup {
         layout.add(30.);
 
         self.back_clicked = Button::default()
-            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Okay"))
+            .draw_centered(
+                x_mid,
+                layout.next(),
+                BUTTON_W,
+                BUTTON_H,
+                Some("Okay"),
+                has_input,
+            )
             .poll();
     }
 

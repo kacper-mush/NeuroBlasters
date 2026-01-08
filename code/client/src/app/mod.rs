@@ -1,3 +1,4 @@
+use crate::app::fps_display::FPSDisplay;
 use crate::app::game::Game;
 use crate::app::main_menu::MainMenu;
 use crate::app::popup::Popup;
@@ -6,7 +7,9 @@ use crate::ui::BACKGROUND_COLOR;
 
 use macroquad::prelude::*;
 
-pub mod game;
+mod feeds;
+mod fps_display;
+mod game;
 mod game_creation;
 mod game_view;
 mod in_game_menu;
@@ -48,10 +51,10 @@ pub(crate) enum Transition {
     PopAnd(Box<dyn View>),
     /// Pop states until we find the specific ID (e.g., "Back to Main Menu")
     PopUntil(ViewId),
-    /// combination of PopUntil and PopAnd
+    /// Combination of PopUntil and PopAnd
     PopUntilAnd(ViewId, Box<dyn View>),
-    /// A state that was reliant on a server connection lost it, exit with a reason
-    ConnectionLost(String),
+    /// Perform if app should go to the serverless view
+    ToServerlessView(String),
 }
 
 pub(crate) trait View {
@@ -60,23 +63,10 @@ pub(crate) trait View {
     /// Function for the main update doing all the work
     fn update(&mut self, ctx: &mut AppContext) -> Transition;
 
-    /// Update that is called for View not on top of the app stack,
-    /// no input handling is allowed
-    fn shadow_update(&mut self, _ctx: &mut AppContext) {}
+    /// Only the top view has input
+    fn draw(&mut self, ctx: &AppContext, has_input: bool);
 
-    fn draw(&mut self, ctx: &AppContext);
-
-    // -- Lifecycle Hooks --
-
-    /// Called when this state becomes the top of the stack
-    fn on_start(&mut self, _ctx: &mut AppContext) {}
-
-    /// Called when a new state is pushed on TOP of this one.
-    fn on_pause(&mut self, _ctx: &mut AppContext) {}
-
-    /// Called when some amount of states above this one were popped.
-    /// `from_overlay` tells us if the thing that just closed was a popup or a full view.
-    fn on_resume(&mut self, _ctx: &mut AppContext, _from_overlay: bool) {
+    fn visible_again(&mut self, _ctx: &mut AppContext) {
         // Default behavior: Do nothing (preserve text fields).
         // If we want to reset, we override this method.
     }
@@ -90,6 +80,7 @@ pub(crate) trait View {
 pub(crate) struct App {
     stack: Vec<Box<dyn View>>,
     context: AppContext,
+    fps_display: FPSDisplay,
 }
 
 impl App {
@@ -100,20 +91,24 @@ impl App {
                 game: None,
                 server: Server::new(),
             },
+            fps_display: FPSDisplay::new(30),
         }
     }
 
     pub async fn run(&mut self) {
         while !self.stack.is_empty() {
-            self.context.server.tick();
+            if let Err(reason) = self.context.server.tick() {
+                self.perform_transition(Transition::ToServerlessView(reason));
+            }
+
+            if let Some(game) = &mut self.context.game
+                && let Some(update) = self.context.server.game_update()
+            {
+                game.update(update, &mut self.context.server);
+            }
 
             // We only run update for the state on top of the stack
             let transition = self.stack.last_mut().unwrap().update(&mut self.context);
-
-            // Shadow update all the remaining states
-            for i in 0..self.stack.len() - 1 {
-                self.stack[i].shadow_update(&mut self.context);
-            }
 
             clear_background(BACKGROUND_COLOR);
 
@@ -129,59 +124,77 @@ impl App {
 
             // Draw from the floor up to the top
             for i in start_index..self.stack.len() {
-                self.stack[i].draw(&self.context);
+                let has_input = i == self.stack.len() - 1;
+                self.stack[i].draw(&self.context, has_input);
             }
 
-            match transition {
-                Transition::Push(new_state) => {
-                    // Pause the current state, push the new one, and start it
-                    self.stack.last_mut().unwrap().on_pause(&mut self.context);
-                    self.stack.push(new_state);
-                    self.stack.last_mut().unwrap().on_start(&mut self.context);
-                }
-                Transition::PopUntil(target_id) => {
-                    let only_overlay = self.pop_until(target_id);
+            self.perform_transition(transition);
 
-                    // After the loop, there is at least 1 element on the stack, and the top
-                    // is our target.
+            self.fps_display.update();
+            self.fps_display.draw();
+
+            next_frame().await;
+        }
+    }
+
+    fn perform_transition(&mut self, transition: Transition) {
+        match transition {
+            Transition::Push(new_state) => {
+                self.stack.push(new_state);
+            }
+            Transition::PopUntil(target_id) => {
+                let only_overlay = self.pop_until(target_id);
+
+                // After the loop, there is at least 1 element on the stack, and the top
+                // is our target.
+                if !only_overlay {
                     self.stack
                         .last_mut()
                         .unwrap()
-                        .on_resume(&mut self.context, only_overlay);
+                        .visible_again(&mut self.context);
                 }
-                Transition::PopUntilAnd(target_id, new_view) => {
-                    // TODO: perhaps we should call on_resume here sometimes
-                    let _ = self.pop_until(target_id);
-                    self.stack.push(new_view);
-                    self.stack.last_mut().unwrap().on_start(&mut self.context);
-                }
-                Transition::Pop => {
-                    let from_overlay = self.stack.last_mut().unwrap().is_overlay();
-                    self.stack.pop();
-
-                    if let Some(new_top) = self.stack.last_mut() {
-                        // If there is something left on the stack, we should resume it.
-                        new_top.as_mut().on_resume(&mut self.context, from_overlay);
-                    }
-                }
-                Transition::PopAnd(new_view) => {
-                    self.stack.pop();
-                    self.stack.push(new_view);
-                    self.stack.last_mut().unwrap().on_start(&mut self.context);
-                }
-                // For a connection lost transition, we want to return to the ServerConnectMenu
-                Transition::ConnectionLost(err) => {
-                    self.context.server.close();
-
-                    let _ = self.pop_until(ViewId::ServerConnectMenu);
-                    self.stack.push(Box::new(Popup::new(err)));
-
-                    self.stack.last_mut().unwrap().on_start(&mut self.context);
-                }
-                Transition::None => {}
             }
+            Transition::PopUntilAnd(target_id, new_view) => {
+                let only_overlay = self.pop_until(target_id);
+                if !only_overlay && new_view.is_overlay() {
+                    self.stack
+                        .last_mut()
+                        .unwrap()
+                        .visible_again(&mut self.context);
+                }
 
-            next_frame().await;
+                self.stack.push(new_view);
+            }
+            Transition::Pop => {
+                let from_overlay = self.stack.last_mut().unwrap().is_overlay();
+                self.stack.pop();
+
+                if let Some(new_top) = self.stack.last_mut()
+                    && !from_overlay
+                {
+                    new_top.as_mut().visible_again(&mut self.context);
+                }
+            }
+            Transition::PopAnd(new_view) => {
+                let from_overlay = self.stack.last_mut().unwrap().is_overlay();
+                self.stack.pop();
+                if !from_overlay && new_view.is_overlay() {
+                    self.stack
+                        .last_mut()
+                        .unwrap()
+                        .visible_again(&mut self.context);
+                }
+
+                self.stack.push(new_view);
+            }
+            Transition::ToServerlessView(reason) => {
+                self.context.server.close();
+                self.perform_transition(Transition::PopUntilAnd(
+                    ViewId::ServerConnectMenu,
+                    Box::new(Popup::new(reason)),
+                ));
+            }
+            Transition::None => {}
         }
     }
 

@@ -27,7 +27,7 @@ impl InGameMenu {
 }
 
 impl View for InGameMenu {
-    fn draw(&mut self, ctx: &AppContext) {
+    fn draw(&mut self, ctx: &AppContext, has_input: bool) {
         if ctx.game.is_none() {
             return;
         }
@@ -60,7 +60,14 @@ impl View for InGameMenu {
         self.button_clicked = None;
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), button_w, button_h, Some("Resume"))
+            .draw_centered(
+                x_mid,
+                layout.next(),
+                button_w,
+                button_h,
+                Some("Resume"),
+                has_input,
+            )
             .poll()
         {
             self.button_clicked = Some(MenuButton::Resume);
@@ -69,7 +76,14 @@ impl View for InGameMenu {
 
         if game.can_user_start_game() {
             if Button::default()
-                .draw_centered(x_mid, layout.next(), button_w, button_h, Some("Start Game"))
+                .draw_centered(
+                    x_mid,
+                    layout.next(),
+                    button_w,
+                    button_h,
+                    Some("Start Game"),
+                    has_input,
+                )
                 .poll()
             {
                 self.button_clicked = Some(MenuButton::StartGame);
@@ -84,6 +98,7 @@ impl View for InGameMenu {
                 button_w,
                 button_h,
                 Some("Exit to Main Menu"),
+                has_input,
             )
             .poll()
         {
@@ -92,17 +107,7 @@ impl View for InGameMenu {
     }
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {
-        match &ctx.server.client_state {
-            ClientState::Playing => {
-                // This is the acceptable current state
-            }
-            ClientState::Error(err) => {
-                return Transition::ConnectionLost(err.clone());
-            }
-            _ => {
-                panic!("Ended up in an invalid state!");
-            }
-        }
+        ctx.server.assert_state(ClientState::Playing);
 
         if is_key_pressed(KeyCode::Escape) {
             return Transition::Pop;

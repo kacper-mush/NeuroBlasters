@@ -28,7 +28,7 @@ impl MainMenu {
 }
 
 impl View for MainMenu {
-    fn draw(&mut self, _ctx: &AppContext) {
+    fn draw(&mut self, _ctx: &AppContext, has_input: bool) {
         let mut layout = Layout::new(100., 30.);
         let x_mid = CANONICAL_SCREEN_MID_X;
 
@@ -44,6 +44,7 @@ impl View for MainMenu {
                 BUTTON_W,
                 BUTTON_H,
                 Some("Train Models"),
+                has_input,
             )
             .poll()
         {
@@ -58,6 +59,7 @@ impl View for MainMenu {
                 BUTTON_W,
                 BUTTON_H,
                 Some("Multiplayer"),
+                has_input,
             )
             .poll()
         {
@@ -66,7 +68,14 @@ impl View for MainMenu {
         layout.add(BUTTON_H);
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Options"))
+            .draw_centered(
+                x_mid,
+                layout.next(),
+                BUTTON_W,
+                BUTTON_H,
+                Some("Options"),
+                has_input,
+            )
             .poll()
         {
             self.button_pressed = Some(MainMenuButtons::Options);
@@ -74,7 +83,14 @@ impl View for MainMenu {
         layout.add(BUTTON_H);
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Quit"))
+            .draw_centered(
+                x_mid,
+                layout.next(),
+                BUTTON_W,
+                BUTTON_H,
+                Some("Quit"),
+                has_input,
+            )
             .poll()
         {
             self.button_pressed = Some(MainMenuButtons::Quit);

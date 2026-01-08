@@ -39,7 +39,7 @@ impl GameCreation {
 }
 
 impl View for GameCreation {
-    fn draw(&mut self, _ctx: &AppContext) {
+    fn draw(&mut self, _ctx: &AppContext, has_input: bool) {
         // For scrollers
         let consitent_text = Text {
             params: TextParams {
@@ -67,13 +67,13 @@ impl View for GameCreation {
 
         consitent_text.draw(&num_rounds.to_string(), x_mid, layout.next());
         if Button::default()
-            .draw_centered(x_mid - 100., layout.next(), 50., 50., Some("<"))
+            .draw_centered(x_mid - 100., layout.next(), 50., 50., Some("<"), has_input)
             .poll()
         {
             self.button_pressed = Some(GameCreationButtons::RoundScrollLeft);
         }
         if Button::default()
-            .draw_centered(x_mid + 100., layout.next(), 50., 50., Some(">"))
+            .draw_centered(x_mid + 100., layout.next(), 50., 50., Some(">"), has_input)
             .poll()
         {
             self.button_pressed = Some(GameCreationButtons::RoundScrollRight);
@@ -86,13 +86,13 @@ impl View for GameCreation {
         let map_name = format!("{:?}", self.current_map);
         consitent_text.draw(&map_name, x_mid, layout.next());
         if Button::default()
-            .draw_centered(x_mid - 100., layout.next(), 50., 50., Some("<"))
+            .draw_centered(x_mid - 100., layout.next(), 50., 50., Some("<"), has_input)
             .poll()
         {
             self.button_pressed = Some(GameCreationButtons::MapScrollLeft);
         }
         if Button::default()
-            .draw_centered(x_mid + 100., layout.next(), 50., 50., Some(">"))
+            .draw_centered(x_mid + 100., layout.next(), 50., 50., Some(">"), has_input)
             .poll()
         {
             self.button_pressed = Some(GameCreationButtons::MapScrollRight);
@@ -100,7 +100,7 @@ impl View for GameCreation {
         layout.add(el_h);
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Create"))
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Create"), has_input)
             .poll()
         {
             self.button_pressed = Some(GameCreationButtons::Create);
@@ -108,7 +108,7 @@ impl View for GameCreation {
         layout.add(el_h);
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Back"))
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Back"), has_input)
             .poll()
         {
             self.button_pressed = Some(GameCreationButtons::Back);
@@ -116,21 +116,7 @@ impl View for GameCreation {
     }
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {
-        if let ClientState::Error(err) = &ctx.server.client_state {
-            return Transition::ConnectionLost(err.clone());
-        }
-
-        match &ctx.server.client_state {
-            ClientState::Error(err) => {
-                return Transition::ConnectionLost(err.clone());
-            }
-            ClientState::Connected => {
-                // That's the default state for this view
-            }
-            _ => {
-                panic!("Invalid server state for game creation view.");
-            }
-        }
+        ctx.server.assert_state(ClientState::Connected);
 
         match self.button_pressed {
             Some(button) => match button {

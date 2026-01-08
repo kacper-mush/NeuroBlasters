@@ -5,11 +5,9 @@ use crate::app::request_view::{RequestAction, RequestView};
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
 use crate::ui::{
-    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_MID, Text,
-    TextField,
+    BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_MID, Text, TextField,
 };
 use common::protocol::{ClientMessage, GameCode};
-use macroquad::prelude::*;
 
 #[derive(Clone, Copy)]
 enum ServerLobbyButtons {
@@ -21,15 +19,13 @@ enum ServerLobbyButtons {
 pub(crate) struct ServerLobby {
     button_pressed: Option<ServerLobbyButtons>,
     game_code_field: TextField,
-    message: Option<String>,
 }
 
 impl ServerLobby {
     pub fn new() -> Self {
         ServerLobby {
             button_pressed: None,
-            game_code_field: TextField::new_simple(10),
-            message: None,
+            game_code_field: TextField::new_simple(6),
         }
     }
 
@@ -42,7 +38,7 @@ impl ServerLobby {
             // the info that comes with it. Will not happen in practice.
             if initial.is_none() || client_id.is_none() {
                 ctx.server.close();
-                return Transition::ConnectionLost("Unexpected server error.".into());
+                return Transition::ToServerlessView("Unexpected server error.".into());
             }
             let initial = initial.unwrap();
 
@@ -56,7 +52,7 @@ impl ServerLobby {
 }
 
 impl View for ServerLobby {
-    fn draw(&mut self, _ctx: &AppContext) {
+    fn draw(&mut self, _ctx: &AppContext, has_input: bool) {
         let x_mid = CANONICAL_SCREEN_MID_X;
         let el_w = BUTTON_W;
         let el_h = BUTTON_H;
@@ -68,7 +64,14 @@ impl View for ServerLobby {
         layout.add(70.);
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Create new"))
+            .draw_centered(
+                x_mid,
+                layout.next(),
+                el_w,
+                el_h,
+                Some("Create new"),
+                has_input,
+            )
             .poll()
         {
             self.button_pressed = Some(ServerLobbyButtons::Create);
@@ -82,10 +85,17 @@ impl View for ServerLobby {
         let right_x = x_mid + el_w / 4.;
 
         self.game_code_field
-            .draw_centered(left_x, layout.next(), el_w / 2., el_h);
+            .draw_centered(left_x, layout.next(), el_w / 2., el_h, has_input);
 
         if Button::default()
-            .draw_centered(right_x, layout.next(), el_w / 2., el_h, Some("Join"))
+            .draw_centered(
+                right_x,
+                layout.next(),
+                el_w / 2.,
+                el_h,
+                Some("Join"),
+                has_input,
+            )
             .poll()
         {
             self.button_pressed = Some(ServerLobbyButtons::Join);
@@ -93,32 +103,18 @@ impl View for ServerLobby {
         layout.add(el_h);
 
         if Button::default()
-            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Back"))
+            .draw_centered(x_mid, layout.next(), el_w, el_h, Some("Back"), has_input)
             .poll()
         {
             self.button_pressed = Some(ServerLobbyButtons::Back);
         }
         layout.add(el_h);
-
-        if let Some(message) = self.message.as_ref() {
-            Text::new_scaled(TEXT_LARGE).draw(message, x_mid, layout.next());
-        }
     }
 
     fn update(&mut self, ctx: &mut AppContext) -> Transition {
-        self.game_code_field.update();
+        ctx.server.assert_state(ClientState::Connected);
 
-        match &ctx.server.client_state {
-            ClientState::Error(err) => {
-                return Transition::ConnectionLost(err.clone());
-            }
-            ClientState::Connected => {
-                // Default state for this view
-            }
-            _ => {
-                panic!("Invalid server state for server lobby.");
-            }
-        }
+        self.game_code_field.update();
 
         match self.button_pressed {
             Some(button) => match button {
@@ -142,11 +138,8 @@ impl View for ServerLobby {
         }
     }
 
-    fn on_resume(&mut self, _ctx: &mut AppContext, from_overlay: bool) {
-        if !from_overlay {
-            self.message = None;
-            self.game_code_field.reset();
-        }
+    fn visible_again(&mut self, _ctx: &mut AppContext) {
+        self.game_code_field.reset();
     }
 
     fn get_id(&self) -> ViewId {

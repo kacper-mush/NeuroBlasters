@@ -380,7 +380,7 @@ impl View for TrainingMenu {
         }
     }
 
-    fn draw(&mut self, _ctx: &AppContext) {
+    fn draw(&mut self, _ctx: &AppContext, has_input: bool) {
         let x_mid = CANONICAL_SCREEN_WIDTH / 2.;
         let mut next_state: Option<TrainingState> = None;
 
@@ -441,7 +441,14 @@ impl View for TrainingMenu {
                     if item_y + BUTTON_H > list_start_y
                         && item_y < list_end_y
                         && Button::default()
-                            .draw_centered(x_mid, item_y, BUTTON_W * 1.5, BUTTON_H, Some(file))
+                            .draw_centered(
+                                x_mid,
+                                item_y,
+                                BUTTON_W * 1.5,
+                                BUTTON_H,
+                                Some(file),
+                                has_input,
+                            )
                             .poll()
                     {
                         picked_file = Some(file.clone());
@@ -457,7 +464,14 @@ impl View for TrainingMenu {
 
                 // Back Button (Fixed)
                 if Button::default()
-                    .draw_centered(x_mid, back_button_y, BUTTON_W, BUTTON_H, Some("Back"))
+                    .draw_centered(
+                        x_mid,
+                        back_button_y,
+                        BUTTON_W,
+                        BUTTON_H,
+                        Some("Back"),
+                        has_input,
+                    )
                     .poll()
                 {
                     self.back_clicked = true;
@@ -500,6 +514,7 @@ impl View for TrainingMenu {
                         BUTTON_W * 1.5,
                         BUTTON_H,
                         Some("Spectator (4v4)"),
+                        has_input,
                     )
                     .poll()
                 {
@@ -514,6 +529,7 @@ impl View for TrainingMenu {
                         BUTTON_W * 1.5,
                         BUTTON_H,
                         Some("Play Solo vs 4 Bots"),
+                        has_input,
                     )
                     .poll()
                 {
@@ -523,7 +539,14 @@ impl View for TrainingMenu {
 
                 layout.add(20.);
                 if Button::default()
-                    .draw_centered(x_mid, layout.next(), BUTTON_W, BUTTON_H, Some("Back"))
+                    .draw_centered(
+                        x_mid,
+                        layout.next(),
+                        BUTTON_W,
+                        BUTTON_H,
+                        Some("Back"),
+                        has_input,
+                    )
                     .poll()
                 {
                     self.back_clicked = true;
