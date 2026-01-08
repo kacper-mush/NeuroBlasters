@@ -1,77 +1,109 @@
 use std::fmt::Debug;
 use std::{mem, net::ToSocketAddrs};
 
+use common::protocol::{
+    API_VERSION, CreateGameResponse, GameUpdate, HandshakeResponse, JoinGameResponse,
+    StartCountdownResponse,
+};
 use common::{
     codec::{decode_server_message, encode_client_message},
-    game::engine::GameEngine,
     game::player::is_valid_username,
-    protocol::{
-        ApiVersion, ClientMessage, GameCode, GameEvent, GameStateSnapshot, MapDefinition,
-        ServerMessage, Team,
-    },
+    protocol::{ClientMessage, ServerMessage},
 };
 use rand::Rng;
+use std::sync::mpsc::Receiver;
 
 use std::net::UdpSocket;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
-use renet::{ClientId, ConnectionConfig, RenetClient};
-use renet_netcode::{ClientAuthentication, NetcodeClientTransport};
+use renet::{ClientId, ConnectionConfig, DisconnectReason, RenetClient};
+use renet_netcode::{
+    ClientAuthentication, NetcodeClientTransport, NetcodeDisconnectReason, NetcodeError,
+    NetcodeTransportError,
+};
+
+use crate::app::game::Game;
+
+enum Request {}
 
 /// Represents in what state of the communication the client is
 pub(crate) enum ClientState {
     /// Initial state
     Disconnected,
-    /// Waiting for the server to acknowledge connection
-    Handshaking,
-    /// Connected to the server, can create / join rooms
+    /// Connected to the server, can create / join games
     Connected,
-    /// Requested a room join / creation, waiting for response
-    WaitingForRoom,
-    /// In a room with players waiting for the game to start
-    InRoom {
-        game_code: GameCode,
-        player_names: Vec<String>,
-    },
     /// In a game
-    Playing { game_engine: GameEngine },
-    /// Game ended
-    AfterGame { winner: Team },
-    /// Bad state, server should be dropped
-    Error,
+    Playing,
+    /// Unrecoverable server error, client should drop connection
+    Error(String),
 }
 
 impl Debug for ClientState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
             ClientState::Disconnected => "Disconnected",
-            ClientState::Handshaking => "Handshaking",
             ClientState::Connected => "Connected",
-            ClientState::WaitingForRoom => "WaitingForRoom",
-            ClientState::InRoom { .. } => "InRoom",
-            ClientState::Playing { .. } => "Playing",
-            ClientState::AfterGame { .. } => "AfterGame",
-            ClientState::Error => "Error",
+            ClientState::Playing => "Playing",
+            ClientState::Error(_) => "Error",
         };
         f.write_str(name)
     }
 }
 
-pub(crate) struct Server {
+struct ConnectionData {
     client: RenetClient,
-    transport: NetcodeClientTransport,
-    last_tick: Instant,
-    fresh: bool,
     client_id: ClientId,
+    transport: NetcodeClientTransport,
+}
+
+pub(crate) struct Server {
+    connection_data: Option<ConnectionData>,
+    connect_rx: Option<Receiver<Result<ConnectionData, String>>>,
+    last_tick: Instant,
+    game_update: Option<GameUpdate>,
     pub client_state: ClientState,
+    /// If request failed, the client can check why
+    request_response: Option<Result<(), String>>,
+    request_pending: bool,
 }
 
 const PROTOCOL_ID: u64 = 0;
 const RELIABLE_CHANNEL_ID: u8 = 0;
-const API_VERSION: ApiVersion = ApiVersion(2);
 
 impl Server {
-    pub fn new(mut servername: String, username: String) -> Result<Self, String> {
+    pub fn new() -> Self {
+        Self {
+            connection_data: None,
+            connect_rx: None,
+            last_tick: Instant::now(),
+            game_update: None,
+            client_state: ClientState::Disconnected,
+            request_response: None,
+            request_pending: false,
+        }
+    }
+
+    pub fn connect(&mut self, servername: String, username: String) {
+        if self.request_pending || !matches!(self.client_state, ClientState::Disconnected) {
+            panic!("Unexpected call to connect.");
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.connect_rx = Some(rx);
+
+        // The request will be pending for as long as we receive handshake response (or an error occurs earlier)
+        self.request_pending = true;
+
+        std::thread::spawn(move || {
+            let result = Server::connect_blocking(servername, username);
+            let _ = tx.send(result);
+        });
+    }
+
+    fn connect_blocking(
+        mut servername: String,
+        username: String,
+    ) -> Result<ConnectionData, String> {
         is_valid_username(&username)?;
 
         // If no port suffix present, append the 8080 port which is the default for our server
@@ -79,15 +111,21 @@ impl Server {
             servername.push_str(":8080");
         }
 
-        let server_addr = servername
+        let addrs: Vec<std::net::SocketAddr> = servername
             .to_socket_addrs()
-            .ok()
-            .and_then(|mut iter| iter.next())
+            .map_err(|_| "Server not found.".to_string())?
+            .collect();
+        let mut addrs = addrs;
+        // Prefer IPv4 when both families are available (common for "localhost" resolving to ::1 first on Linux).
+        addrs.sort_by_key(|a| if a.is_ipv4() { 0 } else { 1 });
+        let server_addr = addrs
+            .first()
+            .copied()
             .ok_or("Server not found.".to_string())?;
 
         let connection_config = ConnectionConfig::default();
 
-        let client = RenetClient::new(connection_config);
+        let mut client = RenetClient::new(connection_config);
 
         // Listen on all interfaces on any port, with the appropriate protocol
         let socket = if server_addr.is_ipv4() {
@@ -113,293 +151,323 @@ impl Server {
         let transport = NetcodeClientTransport::new(current_time, authentication, socket)
             .or(Err("Could not establish a connection."))?;
 
-        let mut server = Self {
+        // Send handshake as the final step. User will wait for server response.
+        let payload = encode_client_message(&ClientMessage::Handshake {
+            api_version: API_VERSION,
+            nickname: username,
+        })
+        .or(Err("Could not send handshake message."))?;
+
+        client.send_message(RELIABLE_CHANNEL_ID, payload);
+
+        Ok(ConnectionData {
             client,
             client_id,
             transport,
-            fresh: false,
-            last_tick: Instant::now(),
-            client_state: ClientState::Disconnected,
-        };
-
-        server
-            .send_client_message(ClientMessage::Handshake {
-                api_version: API_VERSION,
-                nickname: username,
-            })
-            .or(Err("Handshake attempt failed."))?;
-
-        Ok(server)
+        })
     }
 
-    pub fn get_id(&self) -> ClientId {
-        self.client_id
+    pub fn get_client_id(&self) -> ClientId {
+        self.connection_data
+            .as_ref()
+            .expect("Should not be called when there is no connection.")
+            .client_id
     }
 
-    pub fn tick(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn tick(&mut self, ctx: &mut Option<Game>) {
+        if let Some(rx) = &self.connect_rx {
+            // Connecting to server has finished
+            if let Ok(result) = rx.try_recv() {
+                self.connect_rx = None;
+
+                match result {
+                    Ok(connection_data) => {
+                        // Succesfully connected, but we are still waiting for handshake response.
+                        self.connection_data = Some(connection_data);
+                    }
+                    Err(reason) => {
+                        // Could not connect.
+                        self.request_pending = false;
+                        self.request_response = Some(Err(reason));
+                    }
+                }
+            }
+        }
+
         let now = Instant::now();
         let dt = now.duration_since(self.last_tick);
         self.last_tick = now;
 
-        self.transport.update(dt, &mut self.client)?;
-
-        if self.client.is_connected() {
-            self.process_server_messages()?;
-            self.transport.send_packets(&mut self.client)?;
+        if let Err(reason) = self.handle_network(ctx, dt) {
+            self.client_state = ClientState::Error(reason);
         }
+    }
 
+    fn handle_network(&mut self, ctx: &mut Option<Game>, dt: Duration) -> Result<(), String> {
+        if let Some(mut connection_data) = self.connection_data.take() {
+            let result = connection_data
+                .transport
+                .update(dt, &mut connection_data.client);
+            self.handle_net_result(result)?;
+
+            if connection_data.client.is_connected() {
+                self.process_server_messages(&mut connection_data, ctx)?;
+
+                let result = connection_data
+                    .transport
+                    .send_packets(&mut connection_data.client);
+                self.handle_net_result(result)?;
+            }
+            self.connection_data = Some(connection_data);
+        }
         Ok(())
     }
 
-    fn process_server_messages(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        while let Some(message) = self.client.receive_message(RELIABLE_CHANNEL_ID) {
-            let server_msg = decode_server_message(&message)?;
-            self.process_message(server_msg);
+    fn handle_net_result(
+        &mut self,
+        result: Result<(), NetcodeTransportError>,
+    ) -> Result<(), String> {
+        if let Err(transport_error) = result {
+            eprintln!("Server errror: {}", transport_error);
+            let default = Err("Network connection failed.".into());
+            match transport_error {
+                NetcodeTransportError::Renet(DisconnectReason::DisconnectedByServer) => {
+                    Err("Server closed connection.".into())
+                }
+                NetcodeTransportError::Netcode(NetcodeError::Disconnected(
+                    NetcodeDisconnectReason::DisconnectedByServer,
+                )) => Err("Server closed connection.".into()),
+                _ => default,
+            }
+        } else {
+            Ok(())
         }
-        self.fresh = true;
+    }
+
+    fn process_server_messages(
+        &mut self,
+        connection_data: &mut ConnectionData,
+        ctx: &mut Option<Game>,
+    ) -> Result<(), String> {
+        while let Some(message) = connection_data.client.receive_message(RELIABLE_CHANNEL_ID) {
+            let server_msg = decode_server_message(&message).or(Err("Invalid server message."))?;
+            self.process_message(server_msg, ctx, connection_data);
+        }
         Ok(())
     }
 
-    fn process_message(&mut self, server_msg: ServerMessage) {
+    fn process_message(
+        &mut self,
+        server_msg: ServerMessage,
+        ctx: &mut Option<Game>,
+        connection_data: &mut ConnectionData,
+    ) {
         //println!("Got server message: {:?}", server_msg);
-        // Right now the action in most states for a bad server message is to just default
-        // to a connected state, but later on it would probably be beneficial to add a bad message
-        // counter with a memory timeout, and when too many bad messages are received in a short
-        // amount of time, we go to ClientState::Error, as we probably desynced with the server
         let old_state = mem::replace(&mut self.client_state, ClientState::Disconnected);
         //println!("Client state was before: {:?}", old_state);
 
         self.client_state = match old_state {
-            ClientState::Handshaking => match server_msg {
-                ServerMessage::Ok => ClientState::Connected,
-                ServerMessage::Error(error) => {
-                    eprintln!("Server error while handshaking: {}", error);
-                    ClientState::Error
-                }
-                _ => {
-                    eprintln!("Got invalid server message while handshaking.");
-                    ClientState::Error
-                }
-            },
+            ClientState::Disconnected => self.handle_disconnected_state(server_msg),
 
-            ClientState::WaitingForRoom => match server_msg {
-                ServerMessage::GameJoined { game_code } => ClientState::InRoom {
-                    game_code,
-                    player_names: Vec::new(),
-                },
-                ServerMessage::Error(error) => {
-                    eprintln!("Server errror when waiting for a room: {}", error);
-                    ClientState::Connected // We don't need to drop the connection here
-                }
-                _ => {
-                    eprintln!("Got invalid server message while waiting for room.");
-                    ClientState::Connected
-                }
-            },
+            ClientState::Connected => self.handle_connected_state(server_msg, ctx, connection_data),
 
-            ClientState::InRoom {
-                game_code,
-                player_names,
-            } => match server_msg {
-                ServerMessage::GameUpdate(update) => {
-                    let player_names = update.players.into_iter().map(|(_id, name)| name).collect();
-                    let events = update.events;
-                    if !events.is_empty() {
-                        println!("Game update in room events: {:?}", events);
-                    }
-                    match update.state {
-                        // Nothing important happened
-                        GameStateSnapshot::Waiting => ClientState::InRoom {
-                            game_code,
-                            player_names,
-                        },
+            ClientState::Playing => self.handle_playing_state(server_msg),
 
-                        // The game has started
-                        GameStateSnapshot::Battle {
-                            players,
-                            projectiles,
-                        } => {
-                            // There should be a map in the first Battle snapshot we recieve
-                            let map: Option<MapDefinition> = events.iter().find_map(|e| {
-                                if let GameEvent::GameStarted(map) = e {
-                                    Some(map.clone())
-                                } else {
-                                    None
-                                }
-                            });
-
-                            match map {
-                                Some(map) => {
-                                    let mut game_engine = GameEngine::new(map);
-                                    game_engine.players = players;
-                                    game_engine.projectiles = projectiles;
-                                    ClientState::Playing { game_engine }
-                                }
-                                None => {
-                                    eprintln!("Starting game failed: did not receive the map.");
-                                    ClientState::Connected
-                                }
-                            }
-                        }
-                        _ => {
-                            eprintln!("Got invalid server message while in room.");
-                            ClientState::Connected
-                        }
-                    }
-                }
-
-                ServerMessage::Ok => {
-                    // This can happen if we tried to start the game while in room,
-                    // so that's okay. We have to wait for a game tick with a map anyways,
-                    // so we do nothing here
-                    ClientState::InRoom {
-                        game_code,
-                        player_names,
-                    }
-                }
-
-                _ => {
-                    eprintln!("Got invalid server message while in room.");
-                    ClientState::InRoom {
-                        game_code,
-                        player_names,
-                    }
-                }
-            },
-
-            ClientState::Playing { mut game_engine } => match server_msg {
-                ServerMessage::GameUpdate(update) => {
-                    let events = update.events;
-                    if !events.is_empty() {
-                        println!("Playing events: {:?}", events);
-                    }
-
-                    match update.state {
-                        // Game ended, leave
-                        GameStateSnapshot::Ended { winner } => ClientState::AfterGame { winner },
-
-                        // Game still going on
-                        GameStateSnapshot::Battle {
-                            players,
-                            projectiles,
-                        } => {
-                            game_engine.players = players;
-                            game_engine.projectiles = projectiles;
-                            ClientState::Playing { game_engine }
-                        }
-
-                        _ => {
-                            eprintln!("Got invalid server message while in game.");
-                            ClientState::Connected
-                        }
-                    }
-                }
-                ServerMessage::Error(e) => {
-                    eprintln!("Got error response from server while in game: {}", e);
-                    ClientState::Playing { game_engine }
-                }
-                _ => {
-                    eprintln!("Got invalid server message while in game.");
-                    ClientState::Connected
-                }
-            },
-
-            state => match server_msg {
-                ServerMessage::Error(e) => {
-                    eprintln!("Got error response from server while in game: {}", e);
-                    state
-                }
-                _ => {
-                    eprintln!(
-                        "Client not expecting any message, but got: {:?}",
-                        server_msg
-                    );
-                    state
-                }
-            },
+            ClientState::Error(err) => {
+                panic!(
+                    "Processing a message when the server is already in an inrecoverable error state! Reason for earlier failure: {}",
+                    err
+                )
+            }
         };
 
         //println!("State is now: {:?}", self.client_state);
     }
 
-    pub fn send_client_message(
-        &mut self,
-        msg: ClientMessage,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // We check correctness here, and potentially change state
-        match (&self.client_state, &msg) {
-            // Trying to establish a connection
-            (
-                ClientState::Disconnected,
-                ClientMessage::Handshake {
-                    api_version: _,
-                    nickname: _,
-                },
-            ) => {
-                self.client_state = ClientState::Handshaking;
+    fn handle_disconnected_state(&mut self, server_msg: ServerMessage) -> ClientState {
+        match server_msg {
+            ServerMessage::HandshakeResponse(resp) => match resp {
+                HandshakeResponse::Ok => self.complete_request(Ok(()), ClientState::Connected),
+                HandshakeResponse::ApiMismatch => {
+                    ClientState::Error("Server error: API mismatch.".into())
+                }
+                HandshakeResponse::ServerFull => {
+                    ClientState::Error("Server error: server is full.".into())
+                }
+            },
+
+            ServerMessage::Error(error) => {
+                ClientState::Error(format!("Server error while handshaking: {}", error))
             }
 
+            _ => ClientState::Error("Got invalid server message while handshaking.".into()),
+        }
+    }
+
+    fn handle_connected_state(
+        &mut self,
+        server_msg: ServerMessage,
+        ctx: &mut Option<Game>,
+        connection_data: &mut ConnectionData,
+    ) -> ClientState {
+        match server_msg {
+            ServerMessage::CreateGameReponse(resp) => match resp {
+                CreateGameResponse::Ok(initial_game_info) => {
+                    // Should resolve to true
+                    let is_host = initial_game_info.game_master == connection_data.client_id;
+                    self.complete_request_fn(Ok(()), || {
+                        *ctx = Some(Game::new(initial_game_info, is_host));
+                        ClientState::Playing
+                    })
+                }
+                CreateGameResponse::TooManyGames => self.complete_request(
+                    Err("Server game limit exhausted.".into()),
+                    ClientState::Connected,
+                ),
+            },
+
+            ServerMessage::JoinGameResponse(resp) => match resp {
+                JoinGameResponse::Ok(initial_game_info) => {
+                    // Will most likely resolve to false
+                    let is_host = initial_game_info.game_master == connection_data.client_id;
+                    self.complete_request_fn(Ok(()), || {
+                        *ctx = Some(Game::new(initial_game_info, is_host));
+                        ClientState::Playing
+                    })
+                }
+
+                JoinGameResponse::GameFull => {
+                    self.complete_request(Err("Game is full.".into()), ClientState::Connected)
+                }
+                JoinGameResponse::InvalidCode => self.complete_request(
+                    Err("Game does not exist (invalid code).".into()),
+                    ClientState::Connected,
+                ),
+                JoinGameResponse::GameStarted => self.complete_request(
+                    Err("Game has already started.".into()),
+                    ClientState::Connected,
+                ),
+            },
+
+            ServerMessage::Error(error) => ClientState::Error(format!("Server errror: {}", error)),
+
+            _ => ClientState::Error("Got invalid server message.".into()),
+        }
+    }
+
+    fn handle_playing_state(&mut self, server_msg: ServerMessage) -> ClientState {
+        match server_msg {
+            ServerMessage::GameUpdate(new_update) => {
+                self.game_update = Some(new_update);
+                ClientState::Playing
+            }
+
+            ServerMessage::StartCountdownResponse(resp) => match resp {
+                StartCountdownResponse::Ok => self.complete_request(Ok(()), ClientState::Playing),
+                StartCountdownResponse::NotEnoughPlayers => self.complete_request(
+                    Err("Not enough players to start game.".into()),
+                    ClientState::Playing,
+                ),
+            },
+
+            ServerMessage::LeaveGameAck => self.complete_request(Ok(()), ClientState::Connected),
+
+            ServerMessage::Error(e) => ClientState::Error(format!(
+                "Got error response from server while in game: {}",
+                e
+            )),
+
+            _ => ClientState::Error("Got invalid server message while in game.".into()),
+        }
+    }
+
+    pub fn send_client_message(&mut self, msg: ClientMessage) {
+        // Checking if the message we are sending aligns with the state we are in
+        match (&self.client_state, &msg) {
             // Trying to create / join a game
             (
                 ClientState::Connected,
-                ClientMessage::CreateGame | ClientMessage::JoinGame { game_code: _ },
-            ) => {
-                self.client_state = ClientState::WaitingForRoom;
-            }
-
-            // Trying to start when in a room
-            (
-                ClientState::InRoom {
-                    game_code: _,
-                    player_names: _,
-                },
-                ClientMessage::StartGame,
+                ClientMessage::CreateGame { map: _, rounds: _ }
+                | ClientMessage::JoinGame { game_code: _ },
             ) => {}
 
-            // Trying to send input when playing
-            (ClientState::Playing { game_engine: _ }, ClientMessage::GameInput(_)) => {}
+            // Available options in game
+            (
+                ClientState::Playing,
+                ClientMessage::LeaveGame
+                | ClientMessage::StartCountdown
+                | ClientMessage::GameInput(_),
+            ) => {}
 
-            // Trying to leave
-            (state, ClientMessage::LeaveGame) => match state {
-                ClientState::InRoom {
-                    game_code: _,
-                    player_names: _,
-                }
-                | ClientState::Playing { game_engine: _ } => {
-                    // Only in these two states leaving makes sense
-                    self.client_state = ClientState::Connected;
-                }
-                _ => panic!("Trying to leave when not in a game!"),
-            },
-
-            // We decide to panic, because this is not a network fault, there is
-            // something wrong with the client logic.
             _ => {
                 panic!("Invalid message for current state!");
             }
         }
 
-        let payload = encode_client_message(&msg)?;
-        self.client.send_message(RELIABLE_CHANNEL_ID, payload);
-        Ok(())
-    }
+        // All messages are requests besides the GameInput one
+        match &msg {
+            ClientMessage::GameInput(_) => {}
 
-    pub fn get_fresh_game(&mut self) -> Option<GameEngine> {
-        if self.fresh {
-            match &self.client_state {
-                ClientState::Playing { game_engine } => Some(game_engine.clone()),
-                _ => None,
+            _ => {
+                if self.request_pending {
+                    panic!(
+                        "Trying to send another request when the previous one is still pending! Only one request at a time!"
+                    )
+                }
+                self.request_pending = true;
             }
-        } else {
-            None
         }
+
+        let payload =
+            encode_client_message(&msg).expect("Serializing Client Message should never fail.");
+        self.connection_data
+            .as_mut()
+            .expect("Send should never be called when connection was not yet established")
+            .client
+            .send_message(RELIABLE_CHANNEL_ID, payload);
     }
 
-    pub fn back_to_lobby(&mut self) {
-        if matches!(self.client_state, ClientState::AfterGame { winner: _ }) {
-            self.client_state = ClientState::Connected;
-        } else {
-            panic!("Called not when directly after game!");
+    /// Tries to set the request response (if the response is a valid response to some request we made)
+    /// on success, returns the success client state
+    /// on failure, returns an error state with an appropriate message
+    fn complete_request_fn<F: FnOnce() -> ClientState>(
+        &mut self,
+        response: Result<(), String>,
+        success_action: F,
+    ) -> ClientState {
+        // In both cases there is some unwanted response; the first case is simple, but in the second
+        // we have a guarantee from the send_client_message function that we do not make 2 consecutive requests,
+        // so this new response must also be at server's fault
+        if !self.request_pending || self.request_response.is_some() {
+            return ClientState::Error("Server sent response but no request was made.".into());
         }
+
+        self.request_response = Some(response);
+        self.request_pending = false;
+        success_action()
+    }
+
+    fn complete_request(
+        &mut self,
+        response: Result<(), String>,
+        success: ClientState,
+    ) -> ClientState {
+        self.complete_request_fn(response, || success)
+    }
+
+    pub fn take_request_response(&mut self) -> Option<Result<(), String>> {
+        self.request_response.take()
+    }
+
+    pub fn close(&mut self) {
+        self.connection_data.take();
+        self.connect_rx = None;
+        self.request_pending = false;
+        self.request_response = None;
+        self.client_state = ClientState::Disconnected;
+    }
+
+    pub fn game_update(&mut self) -> Option<GameUpdate> {
+        self.game_update.take()
     }
 }

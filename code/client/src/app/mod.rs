@@ -1,22 +1,27 @@
+use crate::app::game::Game;
 use crate::app::main_menu::MainMenu;
+use crate::app::popup::Popup;
 use crate::server::Server;
 use crate::ui::BACKGROUND_COLOR;
+
 use macroquad::prelude::*;
 
-mod game;
+pub mod game;
+mod game_creation;
+mod game_view;
+mod in_game_menu;
 mod main_menu;
 mod options_menu;
 mod popup;
-mod room_creation;
-mod room_lobby;
-mod room_menu;
+mod request_view;
 mod server_connect_menu;
+mod server_lobby;
 mod training_menu;
-mod winner_screen;
 
 // Global data that persists across views
 pub(crate) struct AppContext {
-    pub server: Option<Server>,
+    pub game: Option<Game>,
+    pub server: Server,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -24,14 +29,13 @@ pub(crate) enum ViewId {
     MainMenu,
     TrainingMenu,
     ServerConnectMenu,
-    RoomMenu,
-    RoomLobby,
-    Game,
+    ServerLobby,
+    GameView,
     InGameMenu,
     OptionsMenu,
-    WinnerScreen,
     Popup,
-    RoomCreation,
+    GameCreation,
+    RequestView,
 }
 
 pub(crate) enum Transition {
@@ -40,12 +44,14 @@ pub(crate) enum Transition {
     Push(Box<dyn View>),
     /// Pop the top state
     Pop,
+    /// Like Pop but also pushes a new screen on top of screen below (i.e. an overlay popup)
+    PopAnd(Box<dyn View>),
     /// Pop states until we find the specific ID (e.g., "Back to Main Menu")
     PopUntil(ViewId),
-    /// like PopUntil, but also pushes a new screen on top of the target (i.e. an overlay popup)
+    /// combination of PopUntil and PopAnd
     PopUntilAnd(ViewId, Box<dyn View>),
-    /// A state that was reliant on a server connection lost it
-    ConnectionLost,
+    /// A state that was reliant on a server connection lost it, exit with a reason
+    ConnectionLost(String),
 }
 
 pub(crate) trait View {
@@ -90,22 +96,17 @@ impl App {
     pub async fn new() -> Self {
         App {
             stack: vec![Box::new(MainMenu::new())],
-            context: AppContext { server: None },
+            context: AppContext {
+                game: None,
+                server: Server::new(),
+            },
         }
     }
 
     pub async fn run(&mut self) {
         while !self.stack.is_empty() {
-            if let Some(server) = &mut self.context.server
-                && let Err(e) = server.tick()
-            {
-                // Simple for now
-                eprintln!(
-                    "A network problem occured while handling server connection:\n {:?}",
-                    e
-                );
-                self.context.server.take(); // Something is wrong, drop the server
-            }
+            self.context.server.tick(&mut self.context.game);
+
             // We only run update for the state on top of the stack
             let transition = self.stack.last_mut().unwrap().update(&mut self.context);
 
@@ -149,6 +150,7 @@ impl App {
                         .on_resume(&mut self.context, only_overlay);
                 }
                 Transition::PopUntilAnd(target_id, new_view) => {
+                    // TODO: perhaps we should call on_resume here sometimes
                     let _ = self.pop_until(target_id);
                     self.stack.push(new_view);
                     self.stack.last_mut().unwrap().on_start(&mut self.context);
@@ -162,15 +164,19 @@ impl App {
                         new_top.as_mut().on_resume(&mut self.context, from_overlay);
                     }
                 }
+                Transition::PopAnd(new_view) => {
+                    self.stack.pop();
+                    self.stack.push(new_view);
+                    self.stack.last_mut().unwrap().on_start(&mut self.context);
+                }
                 // For a connection lost transition, we want to return to the ServerConnectMenu
-                Transition::ConnectionLost => {
-                    let only_overlay = self.pop_until(ViewId::ServerConnectMenu);
-                    self.context.server.take();
+                Transition::ConnectionLost(err) => {
+                    self.context.server.close();
 
-                    self.stack
-                        .last_mut()
-                        .unwrap()
-                        .on_resume(&mut self.context, only_overlay);
+                    let _ = self.pop_until(ViewId::ServerConnectMenu);
+                    self.stack.push(Box::new(Popup::new(err)));
+
+                    self.stack.last_mut().unwrap().on_start(&mut self.context);
                 }
                 Transition::None => {}
             }

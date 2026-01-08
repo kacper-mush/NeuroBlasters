@@ -2,7 +2,8 @@ pub mod pathfinding;
 
 use self::pathfinding::find_path_a_star;
 use crate::game::PROJECTILE_SPEED;
-use crate::net::protocol::{InputPayload, MapDefinition, Player, Projectile};
+use crate::game::player::PlayerInfo;
+use crate::net::protocol::objects::{InputPayload, MapDefinition, Projectile, Tank};
 use glam::Vec2;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -19,27 +20,49 @@ pub enum BotDifficulty {
 
 /// Everything a bot is allowed to know to make a decision.
 pub struct BotContext<'a> {
-    pub me: &'a Player,
-    pub players: &'a Vec<Player>,
+    pub me: &'a Tank,
+    pub players: &'a Vec<Tank>,
     pub projectiles: &'a Vec<Projectile>,
     pub map: &'a MapDefinition,
     pub dt: f32,
     pub rng: &'a mut StdRng,
 }
 
+// Clone support for Policy
+pub trait PolicyClone {
+    fn clone_box(&self) -> Box<dyn Policy>;
+}
+
+impl<T> PolicyClone for T
+where
+    T: 'static + Policy + Clone,
+{
+    fn clone_box(&self) -> Box<dyn Policy> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn Policy> {
+    fn clone(&self) -> Box<dyn Policy> {
+        self.clone_box()
+    }
+}
+
 /// Allows us to swap "Scripted Logic" with "Neural Networks" instantly.
-pub trait Policy: Send + Sync {
+pub trait Policy: Send + Sync + PolicyClone {
     fn compute_input(&mut self, ctx: &mut BotContext) -> InputPayload;
 }
 
+#[derive(Clone)]
 pub struct BotAgent {
+    pub player_info: PlayerInfo,
     pub difficulty: BotDifficulty,
     policy: Box<dyn Policy>, // The active brain
     rng: StdRng,
 }
 
 impl BotAgent {
-    pub fn new(difficulty: BotDifficulty, seed: u64) -> Self {
+    pub fn new(player_info: PlayerInfo, difficulty: BotDifficulty, seed: u64) -> Self {
         let rng = StdRng::seed_from_u64(seed);
 
         // Factory: Pick the right brain based on difficulty
@@ -55,6 +78,7 @@ impl BotAgent {
         };
 
         Self {
+            player_info,
             difficulty,
             policy,
             rng,
@@ -64,8 +88,8 @@ impl BotAgent {
     /// The Server calls this once per tick for every bot.
     pub fn generate_input(
         &mut self,
-        me: &Player,
-        players: &Vec<Player>,
+        me: &Tank,
+        players: &Vec<Tank>,
         projectiles: &Vec<Projectile>,
         map: &MapDefinition,
         dt: f32,
@@ -85,13 +109,13 @@ impl BotAgent {
 // ---- Helper functions for scripted behaviours ----
 
 /// Finds the closest living enemy to the bot.
-fn find_closest_enemy<'a>(ctx: &BotContext<'a>) -> Option<&'a Player> {
+fn find_closest_enemy<'a>(ctx: &BotContext<'a>) -> Option<&'a Tank> {
     ctx.players
         .iter()
         .filter(|p| {
-            p.health > 0.0                  // Alive
-            && p.id != ctx.me.id            // Not me
-            && p.team != ctx.me.team // Not teammate
+            p.health > 0.0                                   // Alive
+            && p.player_info.id != ctx.me.player_info.id     // Not me
+            && p.player_info.team != ctx.me.player_info.team // Not teammate
         })
         .min_by(|p1, p2| {
             let d1 = ctx.me.position.distance_squared(p1.position);
@@ -131,7 +155,7 @@ fn has_line_of_sight(ctx: &BotContext, p1: Vec2, p2: Vec2) -> bool {
         // We don't want to shoot if ANY player (teammate or enemy) is in the way.
         // Obviously, we ignore the shooter (ctx.me) and the target (at p2).
         for player in ctx.players {
-            if player.id == ctx.me.id {
+            if player.player_info.id == ctx.me.player_info.id {
                 continue; // Ignore self
             }
 
@@ -207,6 +231,7 @@ enum ScriptedBehavior {
     Terminator,
 }
 
+#[derive(Clone)]
 struct ScriptedPolicy {
     behavior: ScriptedBehavior,
     state_timer: f32,
@@ -235,7 +260,10 @@ impl ScriptedPolicy {
         let mut visible_enemies = Vec::new();
 
         for p in ctx.players {
-            if p.health > 0.0 && p.id != ctx.me.id && p.team != ctx.me.team {
+            if p.health > 0.0
+                && p.player_info.id != ctx.me.player_info.id
+                && p.player_info.team != ctx.me.player_info.team
+            {
                 let dist_sq = ctx.me.position.distance_squared(p.position);
                 if has_line_of_sight(ctx, ctx.me.position, p.position) {
                     visible_enemies.push((dist_sq, p.position));
@@ -420,6 +448,7 @@ impl Policy for ScriptedPolicy {
 }
 // --- Dummy Policy ---
 
+#[derive(Clone)]
 struct DummyPolicy;
 impl Policy for DummyPolicy {
     fn compute_input(&mut self, _ctx: &mut BotContext) -> InputPayload {
@@ -434,7 +463,7 @@ impl Policy for DummyPolicy {
 
 // ---  RL Policy (Mocked) ---
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct RlPolicy {
     // Future: This will hold your 'burn' model
 }

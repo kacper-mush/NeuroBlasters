@@ -1,7 +1,7 @@
-use crate::app::popup::Popup;
-use crate::app::room_menu::RoomMenu;
+use crate::app::request_view::RequestView;
+use crate::app::server_lobby::ServerLobby;
 use crate::app::{AppContext, Transition, View, ViewId};
-use crate::server::{ClientState, Server};
+use crate::server::ClientState;
 use crate::ui::{
     BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_MID, Text, TextField,
 };
@@ -74,54 +74,23 @@ impl View for ServerConnectMenu {
         self.servername_field.update();
         self.username_field.update();
 
-        if let Some(server) = &ctx.server {
-            match server.client_state {
-                ClientState::Error => {
-                    // Handshaking failed
-                    ctx.server.take(); // Drop the server
-                    return Transition::Push(Box::new(Popup::new(
-                        "Could not connect to the server!".into(),
-                    )));
-                }
-                ClientState::Handshaking => {
-                    // Waiting for server response, do nothing
-                }
-                ClientState::Connected => {
-                    println!("Connected!");
-                    return Transition::Push(Box::new(RoomMenu::new()));
-                }
-                _ => {
-                    panic!("Ended up in an invalid state!");
-                }
-            }
+        match &ctx.server.client_state {
+            ClientState::Disconnected => {}
+            _ => panic!("Invalid server state for the server connect view."),
         }
 
         match self.button_pressed {
             Some(button) => match button {
                 ServerConnectButtons::Connect => {
-                    if ctx.server.is_some() {
-                        // we are connecting...
-                        return Transition::None;
-                    }
-
-                    let server =
-                        Server::new(self.servername_field.text(), self.username_field.text());
-                    match server {
-                        Err(err) => {
-                            let message = format!("Could not connect to the server: {}", err);
-                            return Transition::Push(Box::new(Popup::new(message)));
-                        }
-                        Ok(server) => {
-                            ctx.server = Some(server);
-                        }
-                    }
-                    Transition::None
+                    ctx.server
+                        .connect(self.servername_field.text(), self.username_field.text());
+                    let success_view = Some(Box::new(ServerLobby::new()) as Box<dyn View>);
+                    Transition::Push(Box::new(RequestView::new(
+                        "Connecting to server...".into(),
+                        success_view,
+                    )))
                 }
-                ServerConnectButtons::Back => {
-                    // Drop the connection if we are going back to main menu
-                    ctx.server.take();
-                    Transition::Pop
-                }
+                ServerConnectButtons::Back => Transition::Pop,
             },
             None => Transition::None,
         }
