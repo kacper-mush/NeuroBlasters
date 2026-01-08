@@ -187,7 +187,16 @@ impl Game {
                 format!("Round {} starting in {}...", self.current_round, count)
             }
             GameState::Battle(_) => String::new(),
-            GameState::Results(winner) => format!("Team {:?} won!", winner),
+            GameState::Results {
+                winner,
+                blue_score,
+                red_score,
+            } => {
+                format!(
+                    "Team {:?} won! (Blue: {}, Red: {})",
+                    winner, blue_score, red_score
+                )
+            }
         };
         self.main_feed.set(string);
 
