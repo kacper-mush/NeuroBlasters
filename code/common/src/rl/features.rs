@@ -172,7 +172,9 @@ fn raycast_normalized(ctx: &BotContext, direction: Vec2) -> f32 {
 
     // 1. Check Internal Obstacles
     for wall in &ctx.map.walls {
-        if let Some(dist) = ray_aabb_intersect(origin, direction, wall) && dist < min_dist {
+        if let Some(dist) = ray_aabb_intersect(origin, direction, wall)
+            && dist < min_dist
+        {
             min_dist = dist;
         }
     }
