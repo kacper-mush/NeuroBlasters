@@ -248,8 +248,11 @@ async fn main() {
         let temp_base_path = models_dir.join(&temp_name);
         let temp_base_str = temp_base_path.to_str().expect("Invalid path string");
 
-        if population[0].clone().save_file(temp_base_str, &recorder).is_ok() {
-            // Rename overwrites atomically on POSIX, and usually works on Windows if target exists.
+        if population[0]
+            .clone()
+            .save_file(temp_base_str, &recorder)
+            .is_ok()
+        {
             let _ = std::fs::rename(temp_file_path, final_file_path);
         }
     }
