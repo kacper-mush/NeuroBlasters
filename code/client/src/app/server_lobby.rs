@@ -120,7 +120,12 @@ impl View for ServerLobby {
         }
     }
 
-    fn on_resume(&mut self, _ctx: &mut AppContext, from_overlay: bool) {
+    fn on_start(&mut self, ctx: &mut AppContext) {
+        ctx.audio.set_music_volume(1.0);
+    }
+
+    fn on_resume(&mut self, ctx: &mut AppContext, from_overlay: bool) {
+        ctx.audio.set_music_volume(1.0);
         if !from_overlay {
             self.message = None;
             self.game_code_field.reset();

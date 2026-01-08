@@ -283,6 +283,7 @@ impl Server {
                             game_engine,
                             is_host: true,
                             game_state: GameState::Waiting,
+                            last_max_projectile_id: 0,
                         });
 
                         ClientState::Playing
@@ -303,6 +304,7 @@ impl Server {
                         game_engine,
                         is_host: false,
                         game_state: GameState::Waiting,
+                        last_max_projectile_id: 0,
                     });
 
                     ClientState::Playing

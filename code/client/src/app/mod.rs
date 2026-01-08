@@ -1,5 +1,6 @@
 use crate::app::main_menu::MainMenu;
 use crate::app::popup::Popup;
+use crate::app::audio::AudioManager;
 use crate::server::Server;
 use crate::ui::BACKGROUND_COLOR;
 use common::game::engine::GameEngine;
@@ -7,6 +8,7 @@ use common::protocol::{GameState, InitialGameInfo};
 use macroquad::prelude::*;
 
 mod game;
+mod audio;
 mod game_creation;
 mod in_game_menu;
 mod main_menu;
@@ -22,12 +24,14 @@ pub(crate) struct GameContext {
     pub game_engine: GameEngine,
     pub is_host: bool,
     pub game_state: GameState,
+    pub last_max_projectile_id: u64,
 }
 
 // Global data that persists across views
 pub(crate) struct AppContext {
     pub game_context: Option<GameContext>,
     pub server: Server,
+    pub audio: AudioManager,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -100,11 +104,14 @@ pub(crate) struct App {
 
 impl App {
     pub async fn new() -> Self {
+        let mut audio = AudioManager::new().await;
+        audio.start_music();
         App {
             stack: vec![Box::new(MainMenu::new())],
             context: AppContext {
                 game_context: None,
                 server: Server::new(),
+                audio,
             },
         }
     }
@@ -220,3 +227,4 @@ impl App {
         only_overlay
     }
 }
+

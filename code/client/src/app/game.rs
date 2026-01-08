@@ -2,8 +2,8 @@ use crate::app::in_game_menu::InGameMenu;
 
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
-use crate::ui::{TEXT_SMALL, Text, calc_transform};
-use common::protocol::{ClientMessage, InputPayload, Team};
+use crate::ui::{calc_transform, Text, TEXT_SMALL};
+use common::protocol::{ClientMessage, GameEvent, GameUpdate, InputPayload, Team};
 use macroquad::prelude::*;
 
 pub(crate) struct Game;
@@ -12,6 +12,43 @@ impl Game {
     pub fn new() -> Self {
         Self {}
     }
+}
+
+fn process_game_update(ctx: &mut AppContext, update: GameUpdate) {
+    let game_ctx = ctx
+        .game_context
+        .as_mut()
+        .expect("Game context must be present.");
+
+    for event in &update.events {
+        match event {
+            GameEvent::Kill(_) => ctx.audio.play_elimination(),
+            GameEvent::RoundStarted => game_ctx.last_max_projectile_id = 0,
+            _ => {}
+        }
+    }
+
+    for proj in &update.snapshot.engine.projectiles {
+        if proj.id > game_ctx.last_max_projectile_id {
+            ctx.audio.play_shot();
+        }
+    }
+
+    if let Some(max_id) = update
+        .snapshot
+        .engine
+        .projectiles
+        .iter()
+        .map(|p| p.id)
+        .max()
+    {
+        if max_id > game_ctx.last_max_projectile_id {
+            game_ctx.last_max_projectile_id = max_id;
+        }
+    }
+
+    game_ctx.game_engine.apply_snapshot(update.snapshot.engine);
+    game_ctx.game_state = update.snapshot.state;
 }
 
 impl View for Game {
@@ -62,7 +99,11 @@ impl View for Game {
                 transform_x(player.position.x),
                 transform_y(player.position.y),
                 scale(player.radius),
-                if player.team == Team::Blue { BLUE } else { RED },
+                if player.team == Team::Blue {
+                    BLUE
+                } else {
+                    RED
+                },
             );
 
             if player.id == game_info.player_id {
@@ -72,7 +113,11 @@ impl View for Game {
                     transform_y(player.position.y),
                     scale(player.radius),
                     scale(5.),
-                    if player.team == Team::Blue { RED } else { BLUE },
+                    if player.team == Team::Blue {
+                        RED
+                    } else {
+                        BLUE
+                    },
                 );
             }
 
@@ -140,16 +185,14 @@ impl View for Game {
             }
         }
 
+        if let Some(update) = ctx.server.game_update() {
+            process_game_update(ctx, update);
+        }
+
         let game_ctx = &mut ctx
             .game_context
             .as_mut()
             .expect("Game context must be present.");
-
-        if let Some(update) = ctx.server.game_update() {
-            let snapshot = update.snapshot;
-            game_ctx.game_engine.apply_snapshot(snapshot.engine);
-            game_ctx.game_state = snapshot.state;
-        }
 
         let (scaling, x_offset, y_offset) = calc_transform(
             game_ctx.game_engine.map().width,
@@ -210,13 +253,15 @@ impl View for Game {
         if let ClientState::Playing = &mut ctx.server.client_state
             && let Some(update) = ctx.server.game_update()
         {
-            let game_engine = &mut ctx
-                .game_context
-                .as_mut()
-                .expect("Game context must be present.")
-                .game_engine;
-
-            game_engine.apply_snapshot(update.snapshot.engine);
+            process_game_update(ctx, update);
         }
+    }
+
+    fn on_start(&mut self, ctx: &mut AppContext) {
+        ctx.audio.set_music_volume(0.3);
+    }
+
+    fn on_resume(&mut self, ctx: &mut AppContext, _from_overlay: bool) {
+        ctx.audio.set_music_volume(0.3);
     }
 }

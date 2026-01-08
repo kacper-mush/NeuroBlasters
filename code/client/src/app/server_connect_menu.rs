@@ -99,4 +99,12 @@ impl View for ServerConnectMenu {
     fn get_id(&self) -> ViewId {
         ViewId::ServerConnectMenu
     }
+
+    fn on_start(&mut self, ctx: &mut AppContext) {
+        ctx.audio.set_music_volume(1.0);
+    }
+
+    fn on_resume(&mut self, ctx: &mut AppContext, _from_overlay: bool) {
+        ctx.audio.set_music_volume(1.0);
+    }
 }
