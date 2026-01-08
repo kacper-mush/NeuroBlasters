@@ -36,7 +36,11 @@ pub fn extract_features<B: Backend>(ctx: &BotContext, device: &B::Device) -> Ten
     let mut enemies: Vec<&Tank> = ctx
         .players
         .iter()
-        .filter(|p| p.player_info.id != ctx.me.player_info.id && p.player_info.team != ctx.me.player_info.team && p.health > 0.0)
+        .filter(|p| {
+            p.player_info.id != ctx.me.player_info.id
+                && p.player_info.team != ctx.me.player_info.team
+                && p.health > 0.0
+        })
         .collect();
 
     enemies.sort_by(|a, b| {
@@ -70,7 +74,11 @@ pub fn extract_features<B: Backend>(ctx: &BotContext, device: &B::Device) -> Ten
     let mut friends: Vec<&Tank> = ctx
         .players
         .iter()
-        .filter(|p| p.player_info.id != ctx.me.player_info.id && p.player_info.team == ctx.me.player_info.team && p.health > 0.0)
+        .filter(|p| {
+            p.player_info.id != ctx.me.player_info.id
+                && p.player_info.team == ctx.me.player_info.team
+                && p.health > 0.0
+        })
         .collect();
 
     friends.sort_by(|a, b| {

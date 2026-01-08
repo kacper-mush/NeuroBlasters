@@ -1,6 +1,6 @@
 pub mod features;
-pub mod policy;
 pub mod model;
+pub mod policy;
 
 pub use features::{FEATURE_COUNT, extract_features};
 pub use model::BotBrain;

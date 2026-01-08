@@ -32,7 +32,7 @@ struct Args {
     #[arg(long, default_value_t = 1000)]
     max_ticks: usize,
 
-    /// Name of the model to load/save (without extension). 
+    /// Name of the model to load/save (without extension).
     /// Saved to assets/models/<name>.bin
     #[arg(long, default_value = "default_model")]
     model_name: String,
@@ -51,7 +51,7 @@ fn resolve_assets_path(start_dir: &Path) -> PathBuf {
             return candidate;
         }
     }
-    
+
     // Fallback: If absolutely nothing is found, default to ./assets
     // This allows the program to create it there if needed.
     start_dir.join("assets")
@@ -66,49 +66,57 @@ async fn main() {
 
     let device = Default::default();
     let recorder = BinFileRecorder::<FullPrecisionSettings>::default();
-    
+
     // --- Dynamic Path Resolution ---
     let current_dir = env::current_dir().expect("Failed to get current directory");
     let assets_root = resolve_assets_path(&current_dir);
     let models_dir = assets_root.join("models");
-    
+
     // Canonicalize for pretty printing (resolves .. and .), fallback to raw path if fails
-    let pretty_path = assets_root.canonicalize().unwrap_or_else(|_| assets_root.clone());
+    let pretty_path = assets_root
+        .canonicalize()
+        .unwrap_or_else(|_| assets_root.clone());
     println!("Resolved assets directory: {:?}", pretty_path);
 
     // Ensure directory exists
     if let Err(e) = std::fs::create_dir_all(&models_dir) {
-        eprintln!("Failed to create models directory at {:?}: {}", models_dir, e);
+        eprintln!(
+            "Failed to create models directory at {:?}: {}",
+            models_dir, e
+        );
         return;
     }
 
     // Path base: <assets_root>/models/<name>
     // Burn often expects &str path prefixes, so we convert here
     let model_path_buf = models_dir.join(&args.model_name);
-    let model_path_str = model_path_buf.to_str().expect("Path contains invalid unicode").to_string();
+    let model_path_str = model_path_buf
+        .to_str()
+        .expect("Path contains invalid unicode")
+        .to_string();
 
     // 1. Initialize Population
     // Try to load existing model to start with, otherwise random
-    let initial_brain = match BotBrain::<MyBackend>::new(&device).load_file(
-        &model_path_str,
-        &recorder,
-        &device,
-    ) {
-        Ok(brain) => {
-            println!("Loaded existing model: {}.bin", args.model_name);
-            brain
-        }
-        Err(_) => {
-            println!("No existing model found at {}.bin. Starting from scratch.", model_path_str);
-            BotBrain::new(&device)
-        }
-    };
+    let initial_brain =
+        match BotBrain::<MyBackend>::new(&device).load_file(&model_path_str, &recorder, &device) {
+            Ok(brain) => {
+                println!("Loaded existing model: {}.bin", args.model_name);
+                brain
+            }
+            Err(_) => {
+                println!(
+                    "No existing model found at {}.bin. Starting from scratch.",
+                    model_path_str
+                );
+                BotBrain::new(&device)
+            }
+        };
 
     let mut population: Vec<BotBrain<MyBackend>> = (0..args.population_size)
         .map(|_| initial_brain.mutate(args.mutation_rate)) // Slight mutation from base to create diversity
         .collect();
-    
-    if population.is_empty() { 
+
+    if population.is_empty() {
         population.push(BotBrain::new(&device));
     }
 
@@ -163,7 +171,7 @@ async fn main() {
                             Some(Team::Red)
                         } else {
                             None
-                        } 
+                        }
                     };
 
                     if blue_kills > 0 || red_kills > 0 {
@@ -205,7 +213,7 @@ async fn main() {
             .unwrap()
             .into_inner()
             .unwrap();
-        
+
         let mut new_pop = Vec::with_capacity(args.population_size);
 
         for parent in &next_gen_parents {
@@ -227,17 +235,17 @@ async fn main() {
 
         population = new_pop;
         println!("Gen {} Complete. Saving to {}", gen, model_path_str);
-        
+
         // --- Atomic Save ---
         // Save to a temporary file first, then rename to ensure the client doesn't read a partial file.
         // Burn's save_file appends .bin, so if we provide "name_tmp", it writes "name_tmp.bin"
-        
+
         let temp_name = format!("{}_tmp", args.model_name);
-        
+
         // Construct paths using PathBuf for robustness
         let temp_file_path = models_dir.join(format!("{}.bin", temp_name));
         let final_file_path = models_dir.join(format!("{}.bin", args.model_name));
-        
+
         // Base path string for Burn (it appends .bin)
         let temp_base_path = models_dir.join(&temp_name);
         let temp_base_str = temp_base_path.to_str().expect("Invalid path string");
@@ -271,18 +279,28 @@ fn run_4v4_match<B: Backend>(
     for (i, _) in blue_brains.iter().enumerate() {
         if i + 4 < engine.map.spawn_points.len() {
             let spawn = engine.map.spawn_points[i + 4].1;
-            engine.tanks.push(Tank::new(common::game::player::PlayerInfo::new(
-                i as PlayerId,
-                format!("Blue_{}", i),
-                Team::Blue,
-            ), spawn));
+            engine.tanks.push(Tank::new(
+                common::game::player::PlayerInfo::new(
+                    i as PlayerId,
+                    format!("Blue_{}", i),
+                    Team::Blue,
+                ),
+                spawn,
+            ));
         }
     }
     // Spawn Red (Face West PI)
     for (i, _) in red_brains.iter().enumerate() {
         if i < engine.map.spawn_points.len() {
             let spawn = engine.map.spawn_points[i].1;
-            let mut p = Tank::new(common::game::player::PlayerInfo::new((i + 4) as PlayerId, format!("Red_{}", i), Team::Red), spawn);
+            let mut p = Tank::new(
+                common::game::player::PlayerInfo::new(
+                    (i + 4) as PlayerId,
+                    format!("Red_{}", i),
+                    Team::Red,
+                ),
+                spawn,
+            );
             p.rotation = std::f32::consts::PI;
             engine.tanks.push(p);
         }
@@ -300,8 +318,16 @@ fn run_4v4_match<B: Backend>(
         .collect();
 
     for _tick in 0..max_ticks {
-        let blue_cnt = engine.tanks.iter().filter(|p| p.player_info.team == Team::Blue && p.health > 0.0).count();
-        let red_cnt = engine.tanks.iter().filter(|p| p.player_info.team == Team::Red && p.health > 0.0).count();
+        let blue_cnt = engine
+            .tanks
+            .iter()
+            .filter(|p| p.player_info.team == Team::Blue && p.health > 0.0)
+            .count();
+        let red_cnt = engine
+            .tanks
+            .iter()
+            .filter(|p| p.player_info.team == Team::Red && p.health > 0.0)
+            .count();
         if blue_cnt == 0 || red_cnt == 0 {
             break;
         }
@@ -335,7 +361,11 @@ fn run_4v4_match<B: Backend>(
         let result = engine.tick(0.033, inputs);
 
         for dmg in result.damage {
-            let victim_team = if dmg.victim_id < 4 { Team::Blue } else { Team::Red };
+            let victim_team = if dmg.victim_id < 4 {
+                Team::Blue
+            } else {
+                Team::Red
+            };
             if let Some(attacker) = stats.get_mut(dmg.attacker_id as usize) {
                 if attacker.team != victim_team {
                     attacker.total_score += dmg.amount;
@@ -347,7 +377,11 @@ fn run_4v4_match<B: Backend>(
         }
 
         for kill in result.kills {
-            let victim_team = if kill.victim_info.id < 4 { Team::Blue } else { Team::Red };
+            let victim_team = if kill.victim_info.id < 4 {
+                Team::Blue
+            } else {
+                Team::Red
+            };
             if let Some(killer) = stats.get_mut(kill.killer_info.id as usize) {
                 if killer.team != victim_team {
                     killer.kills += 1;
@@ -429,12 +463,15 @@ mod tests {
 
         // Should find root assets from 2 levels deep
         let resolved = resolve_assets_path(&level2);
-        
+
         // Canonicalize to ignore symlinks or relative path differences in comparison
         let resolved_canon = resolved.canonicalize().unwrap();
         let root_assets_canon = root_assets.canonicalize().unwrap();
 
-        assert_eq!(resolved_canon, root_assets_canon, "Should find ../../assets");
+        assert_eq!(
+            resolved_canon, root_assets_canon,
+            "Should find ../../assets"
+        );
 
         // Cleanup
         let _ = fs::remove_dir_all(root);
@@ -445,7 +482,7 @@ mod tests {
         // Setup a dummy player facing East (0 radians)
         let mut player = Player::new(0, "TestBot".to_string(), Team::Blue, Vec2::ZERO);
         player.rotation = 0.0;
-        
+
         // Create context dependencies
         let engine = GameEngine::new(MapDefinition::load());
         let mut rng = StdRng::seed_from_u64(123);

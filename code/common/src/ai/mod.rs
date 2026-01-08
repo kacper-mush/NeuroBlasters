@@ -10,11 +10,11 @@ use rand::{Rng, SeedableRng};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BotDifficulty {
-    Dummy,         // Does nothing
-    Turret,        // Static, shoots when he sees you
-    Wanderer,      // Moves randomly, shoots
-    Hunter,        // Hunts you down
-    Terminator,    // Hunts you down but better
+    Dummy,      // Does nothing
+    Turret,     // Static, shoots when he sees you
+    Wanderer,   // Moves randomly, shoots
+    Hunter,     // Hunts you down
+    Terminator, // Hunts you down but better
 }
 
 /// Everything a bot is allowed to know to make a decision.
