@@ -34,7 +34,7 @@ pub enum ServerMessage {
     CreateGameReponse(CreateGameResponse),
     JoinGameResponse(JoinGameResponse),
     LeaveGameAck,
-    StartCountdownResponse(StartCountdownResponse),
+    StartCountdownAck,
     GameUpdate(GameUpdate),
     Error(String),
 }
@@ -76,12 +76,6 @@ pub enum JoinGameResponse {
     InvalidCode,
     GameFull,
     GameStarted,
-}
-
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub enum StartCountdownResponse {
-    Ok,
-    NotEnoughPlayers,
 }
 
 /// Human–facing lobby code used to join games.

@@ -90,10 +90,6 @@ impl Game {
     }
 
     pub fn start_countdown(&mut self, client_id: ClientId) -> Result<(), StartCountdownError> {
-        if self.players.len() < 2 {
-            return Err(StartCountdownError::NotEnoughPlayers);
-        }
-
         if !matches!(self.state, GameState::Waiting) {
             return Err(StartCountdownError::NotInWaitingState);
         }
@@ -196,7 +192,6 @@ impl Game {
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
 pub enum StartCountdownError {
-    NotEnoughPlayers,
     NotTheGameMaster,
     NotInWaitingState,
 }
@@ -249,14 +244,12 @@ mod tests {
     }
 
     #[test]
-    fn start_countdown_requires_two_players_and_master() {
+    fn start_countdown_requires_master() {
         let master: ClientId = 1;
         let other: ClientId = 2;
         let mut g = Game::new(master, MapName::Basic, 3);
 
         g.add_player(master, "p1".to_string()).unwrap();
-        assert!(g.start_countdown(master).is_err(), "needs 2 players");
-
         g.add_player(other, "p2".to_string()).unwrap();
         assert!(g.start_countdown(other).is_err(), "only master can start");
 

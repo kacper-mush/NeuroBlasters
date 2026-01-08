@@ -3,7 +3,6 @@ use std::{mem, net::ToSocketAddrs};
 
 use common::protocol::{
     API_VERSION, CreateGameResponse, GameUpdate, HandshakeResponse, JoinGameResponse,
-    StartCountdownResponse,
 };
 use common::{
     codec::{decode_server_message, encode_client_message},
@@ -362,13 +361,7 @@ impl Server {
                 ClientState::Playing
             }
 
-            ServerMessage::StartCountdownResponse(resp) => match resp {
-                StartCountdownResponse::Ok => self.complete_request(Ok(()), ClientState::Playing),
-                StartCountdownResponse::NotEnoughPlayers => self.complete_request(
-                    Err("Not enough players to start game.".into()),
-                    ClientState::Playing,
-                ),
-            },
+            ServerMessage::StartCountdownAck => self.complete_request(Ok(()), ClientState::Playing),
 
             ServerMessage::LeaveGameAck => self.complete_request(Ok(()), ClientState::Connected),
 
