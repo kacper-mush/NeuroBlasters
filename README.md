@@ -44,6 +44,11 @@ The project is organized as a Rust workspace with three main crates:
 - Physics engine (collision detection, projectile mechanics)
 - AI and reinforcement learning modules
 
+### **Trainer** (`code/trainer`)
+- Headless reinforcement learning environment
+- Trains bots using evolutionary algorithms
+- Runs massively parallel simulations on GPU
+
 ---
 
 ## 🎮 How to Play
@@ -193,11 +198,54 @@ NeuroBlasters/
 - **Enhanced VFX**: Particle effects and animations
 - **Bring-Your-Own-AI**: Use custom-trained AI in multiplayer matches
 
-## AI notes
+## RL-trained AI
 - **AI-trainer**: UI does not support the AI training for now (only plaing against it or spectating). You can train the AI with RL algorithm using the trainer.
 - **RL**: There are example bots (971-1000.bin are last 30 generations of the RL I was training for a few hours)
 - **Multiplayer**: For now RL is not supported in multiplayer games - only in local trainer mode.
 - **Notice that GPU-acceleration is needed for any RL-related stuff!!**
+
+---
+
+## 🏋️‍♂️ RL Training (Headless)
+
+You can train neural network bots without running the full game using the `trainer` CLI tool. This runs accelerated simulations to evolve better bot strategies.
+
+```bash
+cargo run --release --bin trainer -- --help
+```
+
+### Usage Examples
+
+1. **Train a new model from scratch:**
+   ```bash
+   cargo run --release --bin trainer -- --generations 100 --model_name my_new_model
+   ```
+
+2. **Continue training an existing model:**
+   (If `assets/models/super_bot.bin` exists, it will load it and continue)
+   ```bash
+   cargo run --release --bin trainer -- --model_name super_bot --generations 500
+   ```
+
+3. **Customize Training Parameters:**
+   ```bash
+   cargo run --release --bin trainer -- \
+     --model_name experimental_bot \
+     --generations 1000 \
+     --population_size 128 \
+     --mutation_rate 0.1 \
+     --max_ticks 2000
+   ```
+
+### Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model_name` | `default_model` | Name of the model file (saved to `assets/models/`). |
+| `--generations` | `1000` | Number of evolutionary generations to run. |
+| `--population_size` | `64` | Number of bots in each generation. |
+| `--mutation_rate` | `0.05` | Rate at which bot brains mutate between generations. |
+| `--max_ticks` | `1000` | Maximum duration of each simulation match (in ticks). |
 
 ---
 
