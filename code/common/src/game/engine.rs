@@ -128,9 +128,6 @@ impl GameEngine {
         self.projectiles.clear();
         self.projectile_id_counter = 0;
 
-        // Clear bots and recreate them to fill spawnpoints each round.
-        self.bots.clear();
-
         // Split spawnpoints by team; order within a team doesn't matter.
         let mut red_spawns: Vec<Vec2> = Vec::new();
         let mut blue_spawns: Vec<Vec2> = Vec::new();
@@ -157,7 +154,20 @@ impl GameEngine {
                 .push(Tank::new(PlayerInfo::new(id, nickname, team), pos));
         }
 
-        // Fill remaining spawnpoints with bots.
+        // Respawn existing bots at their assigned spawn points.
+        for bot in &self.bots {
+            let team = bot.player_info.team;
+            let pos = match team {
+                Team::Red => red_spawns.pop(),
+                Team::Blue => blue_spawns.pop(),
+            }
+            .or_else(|| self.random_free_position())
+            .unwrap_or(Vec2::new(self.map.width * 0.5, self.map.height * 0.5));
+
+            self.tanks.push(Tank::new(bot.player_info.clone(), pos));
+        }
+
+        // Fill any remaining spawnpoints with new bots.
         for pos in red_spawns {
             self.spawn_bot(Team::Red, pos);
         }
