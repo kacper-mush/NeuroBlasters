@@ -5,7 +5,7 @@ use crate::ui::{
     BUTTON_H, BUTTON_W, Button, CANONICAL_SCREEN_MID_X, Layout, TEXT_LARGE, TEXT_MID, Text,
 };
 
-use common::protocol::{ClientMessage, GameState};
+use common::protocol::ClientMessage;
 use macroquad::prelude::*;
 
 enum MenuButton {
@@ -28,6 +28,11 @@ impl InGameMenu {
 
 impl View for InGameMenu {
     fn draw(&mut self, ctx: &AppContext) {
+        if ctx.game.is_none() {
+            return;
+        }
+        let game = ctx.game.as_ref().unwrap();
+
         let x_mid = CANONICAL_SCREEN_MID_X;
         let button_w = BUTTON_W;
         let button_h = BUTTON_H;
@@ -45,16 +50,8 @@ impl View for InGameMenu {
         Text::new_scaled(TEXT_LARGE).draw("Game Menu", x_mid, layout.next());
         layout.add(50.);
 
-        let game_code = ctx
-            .game_context
-            .as_ref()
-            .unwrap()
-            .initial_game_info
-            .game_code
-            .clone();
-
         Text::new_scaled(TEXT_MID).draw(
-            &format!("Game code: {}", game_code.0),
+            &format!("Game code: {}", game.get_game_code()),
             x_mid,
             layout.next(),
         );
@@ -70,11 +67,7 @@ impl View for InGameMenu {
         }
         layout.add(button_h);
 
-        let is_host = ctx.game_context.as_ref().is_some_and(|game_context| {
-            game_context.is_host && matches!(game_context.game_state, GameState::Waiting)
-        });
-
-        if is_host {
+        if game.can_user_start_game() {
             if Button::default()
                 .draw_centered(x_mid, layout.next(), button_w, button_h, Some("Start Game"))
                 .poll()
@@ -129,7 +122,7 @@ impl View for InGameMenu {
                 MenuButton::StartGame => {
                     ctx.server
                         .send_client_message(ClientMessage::StartCountdown);
-                    let success_transition = Transition::PopUntil(ViewId::Game);
+                    let success_transition = Transition::PopUntil(ViewId::GameView);
                     return Transition::Push(Box::new(RequestView::new_with_transition(
                         "Starting game...".into(),
                         success_transition,

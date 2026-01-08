@@ -1,4 +1,4 @@
-use crate::app::game::Game;
+use crate::app::game_view::GameView;
 use crate::app::request_view::RequestView;
 use crate::app::{AppContext, Transition, View, ViewId};
 use crate::server::ClientState;
@@ -139,7 +139,7 @@ impl View for GameCreation {
                         map: self.current_map,
                         rounds: ROUND_NUMBER_CHOICES[self.round_index],
                     });
-                    let success_view = Some(Box::new(Game::new()) as Box<dyn View>);
+                    let success_view = Some(Box::new(GameView::new()) as Box<dyn View>);
                     Transition::Push(Box::new(RequestView::new(
                         "Creating game...".into(),
                         success_view,

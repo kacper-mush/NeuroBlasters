@@ -179,7 +179,10 @@ enum GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::protocol::{EngineSnapshot, GameEvent};
+    use common::{
+        game::{Tank, player::PlayerInfo},
+        protocol::{EngineSnapshot, GameEvent},
+    };
     use glam::Vec2;
 
     fn input_shooting_towards(to: Vec2) -> InputPayload {
@@ -256,7 +259,7 @@ mod tests {
             .engine
             .tanks
             .iter()
-            .find(|p| p.nickname == "p1")
+            .find(|p| p.player_info.nickname == "p1")
             .unwrap()
             .position;
 
@@ -275,7 +278,7 @@ mod tests {
             .engine
             .tanks
             .iter()
-            .find(|p| p.nickname == "p1")
+            .find(|p| p.player_info.nickname == "p1")
             .unwrap()
             .position;
 
@@ -300,25 +303,6 @@ mod tests {
             },
         );
         assert!(g.inputs.is_empty());
-    }
-
-    fn make_player(
-        id: PlayerId,
-        nickname: &str,
-        team: common::protocol::Team,
-    ) -> common::protocol::Tank {
-        common::protocol::Tank {
-            id,
-            nickname: nickname.to_string(),
-            team,
-            position: Vec2::new(100.0, 100.0),
-            velocity: Vec2::ZERO,
-            rotation: 0.0,
-            radius: 10.0,
-            speed: 100.0,
-            health: 100.0,
-            weapon_cooldown: 0.0,
-        }
     }
 
     #[test]
@@ -355,18 +339,22 @@ mod tests {
         let master: ClientId = 1;
         let mut g = Game::new(master, MapName::Basic, 3);
 
+        let infos = [
+            PlayerInfo::new(0, "killer".into(), Team::Blue),
+            PlayerInfo::new(1, "victim".into(), Team::Red),
+        ];
+
         // Force battle state and inject players/projectile so resolve_combat produces a kill.
         g.state = GameState::Battle;
         g.engine.apply_snapshot(EngineSnapshot {
-            tanks: vec![make_player(0, "killer", Team::Blue), {
-                let mut p = make_player(1, "victim", Team::Red);
-                p.position = Vec2::new(200.0, 200.0);
+            tanks: vec![Tank::new(infos[0].clone(), Vec2::ZERO), {
+                let mut p = Tank::new(infos[1].clone(), Vec2::new(200.0, 200.0));
                 p.health = 1.0;
                 p
             }],
             projectiles: vec![Projectile {
                 id: 1,
-                owner_id: 0,
+                owner_info: infos[0].clone(),
                 position: Vec2::new(200.0, 200.0), // hits victim immediately
                 velocity: Vec2::ZERO,
                 radius: 5.0,
@@ -375,13 +363,17 @@ mod tests {
 
         g.tick(0.0);
 
-        assert!(g.outgoing_events.iter().any(|e| matches!(
-            e,
-            GameEvent::Kill(KillEvent {
-                killer_id: 0,
-                victim_id: 1
-            })
-        )));
+        assert!(g.outgoing_events.iter().any(|e| {
+            if let GameEvent::Kill(KillEvent {
+                killer_info,
+                victim_info,
+            }) = e
+            {
+                killer_info == &infos[0] && victim_info == &infos[1]
+            } else {
+                false
+            }
+        }));
     }
 
     #[test]
@@ -392,7 +384,10 @@ mod tests {
         // Force battle state and an immediate winner by having only one team alive.
         g.state = GameState::Battle;
         g.engine.apply_snapshot(EngineSnapshot {
-            tanks: vec![make_player(0, "p1", common::protocol::Team::Red)],
+            tanks: vec![Tank::new(
+                PlayerInfo::new(0, "p1".into(), common::protocol::Team::Red),
+                Vec2::ZERO,
+            )],
             projectiles: Vec::new(),
         });
 
@@ -413,7 +408,10 @@ mod tests {
 
         g.state = GameState::Battle;
         g.engine.apply_snapshot(EngineSnapshot {
-            tanks: vec![make_player(0, "p1", common::protocol::Team::Red)],
+            tanks: vec![Tank::new(
+                PlayerInfo::new(0, "p1".into(), common::protocol::Team::Red),
+                Vec2::ZERO,
+            )],
             projectiles: Vec::new(),
         });
 

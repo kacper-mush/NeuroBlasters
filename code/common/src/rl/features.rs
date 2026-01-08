@@ -57,7 +57,11 @@ pub fn extract_features<B: Backend>(ctx: &BotContext, device: &B::Device) -> Ten
 fn find_closest_enemy<'a>(ctx: &BotContext<'a>) -> Option<&'a Tank> {
     ctx.players
         .iter()
-        .filter(|p| p.id != ctx.me.id && p.team != ctx.me.team && p.health > 0.0)
+        .filter(|p| {
+            p.player_info.id != ctx.me.player_info.id
+                && p.player_info.team != ctx.me.player_info.team
+                && p.health > 0.0
+        })
         .min_by(|a, b| {
             let da = ctx.me.position.distance_squared(a.position);
             let db = ctx.me.position.distance_squared(b.position);
