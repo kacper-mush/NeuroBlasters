@@ -123,3 +123,29 @@ impl MapDefinition {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_name_next_cycles_forward() {
+        let first = MapName::Basic;
+        let next = first.next();
+        assert_eq!(next, MapName::Loss);
+    }
+
+    #[test]
+    fn map_name_prev_cycles_backward() {
+        let first = MapName::Basic;
+        let prev = first.prev();
+        assert_eq!(prev, MapName::Loss);
+    }
+
+    #[test]
+    fn map_name_next_then_prev_returns_original() {
+        let original = MapName::Basic;
+        let result = original.next().prev();
+        assert_eq!(original, result);
+    }
+}

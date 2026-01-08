@@ -30,3 +30,33 @@ pub fn is_valid_username(username: &str) -> Result<(), String> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_username_accepts_alphanumeric_and_underscore() {
+        assert!(is_valid_username("Player_123").is_ok());
+        assert!(is_valid_username("abc").is_ok());
+        assert!(is_valid_username("A_B_C_1_2_3_4_5").is_ok());
+    }
+
+    #[test]
+    fn invalid_username_too_short() {
+        assert!(is_valid_username("ab").is_err());
+        assert!(is_valid_username("").is_err());
+    }
+
+    #[test]
+    fn invalid_username_too_long() {
+        assert!(is_valid_username("12345678901234567").is_err()); // 17 chars
+    }
+
+    #[test]
+    fn invalid_username_special_chars() {
+        assert!(is_valid_username("user@name").is_err());
+        assert!(is_valid_username("user name").is_err());
+        assert!(is_valid_username("user-name").is_err());
+    }
+}

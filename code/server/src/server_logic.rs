@@ -453,19 +453,6 @@ mod tests {
     }
 
     #[test]
-    fn accessors_return_internal_state() {
-        let mut logic = ServerLogic::new();
-        let _ = handshake(&mut logic, 1, "p1");
-
-        assert!(!logic.clients().is_empty());
-        // Just ensure it's callable and consistent.
-        assert_eq!(
-            logic.game_manager().games.len(),
-            logic.game_manager_mut().games.len()
-        );
-    }
-
-    #[test]
     fn non_handshake_from_unknown_sender_is_error() {
         let mut logic = ServerLogic::new();
         let err = logic

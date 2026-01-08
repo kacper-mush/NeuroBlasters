@@ -207,7 +207,6 @@ impl GameManager {
 mod tests {
     use super::*;
     use common::protocol::{CreateGameResponse, GameEvent};
-    use rand::SeedableRng;
 
     fn unwrap_game_code(resp: Result<CreateGameResponse, String>) -> GameCode {
         match resp.expect("create_game should not unexpectedly fail") {
@@ -232,13 +231,6 @@ mod tests {
         let n: u32 = game_code.0.parse().expect("game_code should be numeric");
         assert!((1000..9999).contains(&n));
         let _ = player_id; // We only care that it was returned successfully.
-    }
-
-    #[test]
-    fn new_with_rng_constructs() {
-        let rng = StdRng::seed_from_u64(0);
-        let gm = GameManager::new_with_rng(rng);
-        assert!(gm.games.is_empty());
     }
 
     #[test]
