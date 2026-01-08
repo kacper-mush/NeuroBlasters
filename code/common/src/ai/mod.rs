@@ -460,21 +460,3 @@ impl Policy for DummyPolicy {
         }
     }
 }
-
-// ---  RL Policy (Mocked) ---
-
-#[derive(Default, Clone)]
-struct RlPolicy {
-    // Future: This will hold your 'burn' model
-}
-
-impl Policy for RlPolicy {
-    fn compute_input(&mut self, _ctx: &mut BotContext) -> InputPayload {
-        // For now, it just mocks a Dummy
-        InputPayload {
-            move_axis: Vec2::ZERO,
-            aim_pos: Vec2::ZERO,
-            shoot: false,
-        }
-    }
-}
