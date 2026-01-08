@@ -439,9 +439,6 @@ fn action_to_input(actions: &[f32], ctx: &BotContext) -> InputPayload {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::game::engine::GameEngine;
-    use common::net::protocol::Team;
-    use glam::Vec2;
     use std::fs;
 
     #[test]
