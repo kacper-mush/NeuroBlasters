@@ -15,7 +15,6 @@ pub enum BotDifficulty {
     Wanderer,      // Moves randomly, shoots
     Hunter,        // Hunts you down
     Terminator,    // Hunts you down but better
-    TrainedKiller, // Neural Network (RL bot)
 }
 
 /// Everything a bot is allowed to know to make a decision.
@@ -74,7 +73,6 @@ impl BotAgent {
             BotDifficulty::Terminator => {
                 Box::new(ScriptedPolicy::new(ScriptedBehavior::Terminator))
             }
-            BotDifficulty::TrainedKiller => Box::new(RlPolicy::default()),
         };
 
         Self {

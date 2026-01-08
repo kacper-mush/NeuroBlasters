@@ -1,5 +1,6 @@
 use crate::ai::BotContext;
-use crate::game::{FIRE_RATE, PROJECTILE_SPEED, Player, RectWall};
+use crate::game::{FIRE_RATE, PROJECTILE_SPEED};
+use crate::net::protocol::{RectWall, Tank};
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
 use glam::Vec2;
@@ -32,10 +33,10 @@ pub fn extract_features<B: Backend>(ctx: &BotContext, device: &B::Device) -> Ten
 
     // --- 2. ENEMIES (3 Nearest) (9 inputs) ---
     // We explicitly sort ALL enemies by distance
-    let mut enemies: Vec<&Player> = ctx
+    let mut enemies: Vec<&Tank> = ctx
         .players
         .iter()
-        .filter(|p| p.id != ctx.me.id && p.team != ctx.me.team && p.health > 0.0)
+        .filter(|p| p.player_info.id != ctx.me.player_info.id && p.player_info.team != ctx.me.player_info.team && p.health > 0.0)
         .collect();
 
     enemies.sort_by(|a, b| {
@@ -66,10 +67,10 @@ pub fn extract_features<B: Backend>(ctx: &BotContext, device: &B::Device) -> Ten
     }
 
     // --- 3. TEAMMATES (2 Nearest) (6 inputs) ---
-    let mut friends: Vec<&Player> = ctx
+    let mut friends: Vec<&Tank> = ctx
         .players
         .iter()
-        .filter(|p| p.id != ctx.me.id && p.team == ctx.me.team && p.health > 0.0)
+        .filter(|p| p.player_info.id != ctx.me.player_info.id && p.player_info.team == ctx.me.player_info.team && p.health > 0.0)
         .collect();
 
     friends.sort_by(|a, b| {
@@ -99,7 +100,7 @@ pub fn extract_features<B: Backend>(ctx: &BotContext, device: &B::Device) -> Ten
     let nearest_bullet = ctx
         .projectiles
         .iter()
-        .filter(|p| p.owner_id != ctx.me.id)
+        .filter(|p| p.owner_info.id != ctx.me.player_info.id)
         .min_by(|a, b| {
             ctx.me
                 .position

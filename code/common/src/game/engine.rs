@@ -12,13 +12,13 @@ use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct GameEngine {
-    tanks: Vec<Tank>,
-    projectiles: Vec<Projectile>,
-    map: MapDefinition,
-    humans: Vec<PlayerInfo>,
-    bots: Vec<BotAgent>,
-    next_player_id: PlayerId,
-    projectile_id_counter: u64,
+    pub tanks: Vec<Tank>,
+    pub projectiles: Vec<Projectile>,
+    pub map: MapDefinition,
+    pub humans: Vec<PlayerInfo>,
+    pub bots: Vec<BotAgent>,
+    pub next_player_id: PlayerId,
+    pub projectile_id_counter: u64,
 }
 
 pub struct GameTickResult {
@@ -112,8 +112,8 @@ impl GameEngine {
 
         // Resolve Combat (Projectiles hitting Players)
         // This function modifies health, removes dead players/bullets, and returns KillEvents.
-        let kills = resolve_combat(&mut self.players, &mut self.projectiles);
-        let winner = check_round_winner(&self.players);
+        let (kills, damage) = resolve_combat(&mut self.tanks, &mut self.projectiles);
+        let winner = check_round_winner(&self.tanks);
 
         GameTickResult {
             kills,

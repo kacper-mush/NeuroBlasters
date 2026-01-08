@@ -102,8 +102,8 @@ pub fn is_position_safe(pos: Vec2, radius: f32, map: &MapDefinition) -> bool {
 
 #[derive(Clone, Debug)]
 pub struct DamageEvent {
-    pub attacker_id: crate::net::protocol::ClientId,
-    pub victim_id: crate::net::protocol::ClientId,
+    pub attacker_id: crate::net::protocol::PlayerId,
+    pub victim_id: crate::net::protocol::PlayerId,
     pub amount: f32,
 }
 
@@ -226,8 +226,8 @@ pub fn resolve_combat(
 
                 // --- NEW: Record the damage event ---
                 damage_events.push(DamageEvent {
-                    attacker_id: proj.owner_id,
-                    victim_id: player.id,
+                    attacker_id: proj.owner_info.id,
+                    victim_id: player.player_info.id,
                     amount: PROJECTILE_DAMAGE,
                 });
                 // ------------------------------------
@@ -424,7 +424,7 @@ mod tests {
     //         projectiles.is_empty(),
     //         "Bullet should be destroyed on impact"
     //     );
-    // }
+    }
 
     #[test]
     fn test_no_friendly_fire_logic_check() {

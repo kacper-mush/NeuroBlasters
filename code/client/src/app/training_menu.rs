@@ -6,7 +6,7 @@ use burn::module::Module;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use common::ai::BotContext;
 use common::game::engine::GameEngine;
-use common::protocol::{InputPayload, MapDefinition, Player, Team};
+use common::net::protocol::{InputPayload, MapDefinition, PlayerId, Tank, Team};
 use common::rl::{extract_features, BotBrain};
 use glam::Vec2;
 use macroquad::prelude::*;
@@ -37,7 +37,7 @@ enum TrainingState {
         game_engine: GameEngine,
         bot_brain: BotBrain<ClientBackend>,
         mode: TrainingMode,
-        human_id: Option<u64>,
+        human_id: Option<PlayerId>,
     },
 }
 
@@ -93,12 +93,12 @@ impl TrainingMenu {
             TrainingMode::Spectator => {
                 for i in 0..4 {
                     if let Some((team, pos)) = spawn_points.get(i + 4) {
-                        game_engine.add_player(Player::new(i as u64, format!("Blue {}", i), *team, *pos));
+                        game_engine.tanks.push(Tank::new(common::game::player::PlayerInfo::new(i as PlayerId, format!("Blue {}", i), *team), *pos));
                     }
                 }
                 for i in 0..4 {
                     if let Some((team, pos)) = spawn_points.get(i) {
-                        game_engine.add_player(Player::new((i + 4) as u64, format!("Red {}", i), *team, *pos));
+                        game_engine.tanks.push(Tank::new(common::game::player::PlayerInfo::new((i + 4) as PlayerId, format!("Red {}", i), *team), *pos));
                     }
                 }
             }
@@ -106,12 +106,12 @@ impl TrainingMenu {
                 if let Some((team, pos)) = spawn_points.get(4) {
                     let pid = 0;
                     human_id = Some(pid);
-                    game_engine.add_player(Player::new(pid, "Player".into(), *team, *pos));
+                    game_engine.tanks.push(Tank::new(common::game::player::PlayerInfo::new(pid, "Player".into(), *team), *pos));
                 }
                 for i in 0..4 {
                     if let Some((team, pos)) = spawn_points.get(i) {
-                        let pid = (i + 1) as u64; 
-                        game_engine.add_player(Player::new(pid, format!("Bot {}", i), *team, *pos));
+                        let pid = (i + 1) as PlayerId; 
+                        game_engine.tanks.push(Tank::new(common::game::player::PlayerInfo::new(pid, format!("Bot {}", i), *team), *pos));
                     }
                 }
             }
@@ -156,8 +156,8 @@ impl TrainingMenu {
             draw_rectangle(transform_x(wall.min.x), transform_y(wall.min.y), scale(wall.max.x - wall.min.x), scale(wall.max.y - wall.min.y), BLACK);
         }
 
-        for player in &game_engine.players {
-            let color = if player.team == Team::Blue { BLUE } else { RED };
+        for player in &game_engine.tanks {
+            let color = if player.player_info.team == Team::Blue { BLUE } else { RED };
             if player.health <= 0.0 { continue; }
             draw_circle(transform_x(player.position.x), transform_y(player.position.y), scale(player.radius), color);
             let aim_dir = Vec2::new(player.rotation.cos(), player.rotation.sin());
@@ -239,13 +239,13 @@ impl View for TrainingMenu {
                     inputs.insert(*hid, input);
                 }
 
-                for player in &game_engine.players {
+                for player in &game_engine.tanks {
                     if player.health <= 0.0 { continue; }
-                    if Some(player.id) == *human_id { continue; }
+                    if Some(player.player_info.id) == *human_id { continue; }
 
                     let ctx = BotContext {
                         me: player,
-                        players: &game_engine.players,
+                        players: &game_engine.tanks,
                         projectiles: &game_engine.projectiles,
                         map: &game_engine.map,
                         dt,
@@ -253,10 +253,10 @@ impl View for TrainingMenu {
                     };
                     let output = bot_brain.forward(extract_features(&ctx, &Default::default()));
                     let values = output.into_data().to_vec::<f32>().unwrap();
-                    inputs.insert(player.id, Self::bot_action_to_input(&values, &ctx));
+                    inputs.insert(player.player_info.id, Self::bot_action_to_input(&values, &ctx));
                 }
 
-                game_engine.tick(dt, &inputs);
+                game_engine.tick(dt, inputs);
 
                 if is_key_pressed(KeyCode::R) {
                      return Transition::Pop; 

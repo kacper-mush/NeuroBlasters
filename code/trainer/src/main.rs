@@ -6,7 +6,7 @@ use burn::tensor::backend::Backend;
 use clap::Parser;
 use common::ai::BotContext;
 use common::game::engine::GameEngine;
-use common::net::protocol::{InputPayload, MapDefinition, Player, Team};
+use common::net::protocol::{InputPayload, MapDefinition, PlayerId, Tank, Team};
 use common::rl::{extract_features, BotBrain};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -271,21 +271,20 @@ fn run_4v4_match<B: Backend>(
     for (i, _) in blue_brains.iter().enumerate() {
         if i + 4 < engine.map.spawn_points.len() {
             let spawn = engine.map.spawn_points[i + 4].1;
-            engine.add_player(Player::new(
-                i as u64,
+            engine.tanks.push(Tank::new(common::game::player::PlayerInfo::new(
+                i as PlayerId,
                 format!("Blue_{}", i),
                 Team::Blue,
-                spawn,
-            ));
+            ), spawn));
         }
     }
     // Spawn Red (Face West PI)
     for (i, _) in red_brains.iter().enumerate() {
         if i < engine.map.spawn_points.len() {
             let spawn = engine.map.spawn_points[i].1;
-            let mut p = Player::new((i + 4) as u64, format!("Red_{}", i), Team::Red, spawn);
+            let mut p = Tank::new(common::game::player::PlayerInfo::new((i + 4) as PlayerId, format!("Red_{}", i), Team::Red), spawn);
             p.rotation = std::f32::consts::PI;
-            engine.add_player(p);
+            engine.tanks.push(p);
         }
     }
 
@@ -301,8 +300,8 @@ fn run_4v4_match<B: Backend>(
         .collect();
 
     for _tick in 0..max_ticks {
-        let blue_cnt = engine.players.iter().filter(|p| p.team == Team::Blue && p.health > 0.0).count();
-        let red_cnt = engine.players.iter().filter(|p| p.team == Team::Red && p.health > 0.0).count();
+        let blue_cnt = engine.tanks.iter().filter(|p| p.player_info.team == Team::Blue && p.health > 0.0).count();
+        let red_cnt = engine.tanks.iter().filter(|p| p.player_info.team == Team::Red && p.health > 0.0).count();
         if blue_cnt == 0 || red_cnt == 0 {
             break;
         }
@@ -310,14 +309,14 @@ fn run_4v4_match<B: Backend>(
         let mut inputs = std::collections::HashMap::new();
         let mut rng = StdRng::seed_from_u64(0);
 
-        for (i, player) in engine.players.iter().enumerate() {
+        for (i, player) in engine.tanks.iter().enumerate() {
             if player.health <= 0.0 {
                 continue;
             }
 
             let ctx = BotContext {
                 me: player,
-                players: &engine.players,
+                players: &engine.tanks,
                 projectiles: &engine.projectiles,
                 map: &engine.map,
                 dt: 0.033,
@@ -330,10 +329,10 @@ fn run_4v4_match<B: Backend>(
             };
             let output = brain.forward(extract_features(&ctx, device));
             let values = output.into_data().to_vec::<f32>().unwrap();
-            inputs.insert(player.id, action_to_input(&values, &ctx));
+            inputs.insert(player.player_info.id, action_to_input(&values, &ctx));
         }
 
-        let result = engine.tick(0.033, &inputs);
+        let result = engine.tick(0.033, inputs);
 
         for dmg in result.damage {
             let victim_team = if dmg.victim_id < 4 { Team::Blue } else { Team::Red };
@@ -348,8 +347,8 @@ fn run_4v4_match<B: Backend>(
         }
 
         for kill in result.kills {
-            let victim_team = if kill.victim_id < 4 { Team::Blue } else { Team::Red };
-            if let Some(killer) = stats.get_mut(kill.killer_id as usize) {
+            let victim_team = if kill.victim_info.id < 4 { Team::Blue } else { Team::Red };
+            if let Some(killer) = stats.get_mut(kill.killer_info.id as usize) {
                 if killer.team != victim_team {
                     killer.kills += 1;
                     killer.total_score += 500.0;
@@ -360,9 +359,9 @@ fn run_4v4_match<B: Backend>(
         }
     }
 
-    for player in &engine.players {
-        if player.id < 8 {
-            stats[player.id as usize].alive = player.health > 0.0;
+    for player in &engine.tanks {
+        if player.player_info.id < 8 {
+            stats[player.player_info.id as usize].alive = player.health > 0.0;
         }
     }
     stats
