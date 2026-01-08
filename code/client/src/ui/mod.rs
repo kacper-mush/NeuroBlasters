@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn test_layout_multiple_elements() {
         let mut layout = Layout::new(0.0, 10.0);
-        
+
         for i in 0..5 {
             let expected = i as f32 * (30.0 + 10.0); // element + padding
             assert_eq!(layout.next(), expected);
