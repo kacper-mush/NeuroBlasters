@@ -225,6 +225,10 @@ mod tests {
         }
     }
 
+    fn make_player(id: u16, nickname: &str, team: Team) -> Tank {
+        Tank::new(PlayerInfo::new(id, nickname.to_string(), team), Vec2::ZERO)
+    }
+
     #[test]
     fn add_and_remove_player_emits_events() {
         let master: ClientId = 1;
